@@ -33,21 +33,37 @@ const PAGE = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>
 <form id="item-form"><label>テストキー <input required data-testid="item-test-key" name="testKey"></label>
 
 <button type="submit" data-testid="item-create">登録</button></form>
-<p role="status" aria-live="polite" data-testid="item-create-result"></p>
+<p role="status" aria-live="polite" data-state="idle" data-testid="item-create-result"></p>
 <script src="/form.js" defer></script></body></html>`;
 
 const FORM_JS = `document.getElementById('item-form').addEventListener('submit', async (event) => {
   event.preventDefault();
   const result = document.querySelector('[data-testid="item-create-result"]');
   const form = event.currentTarget;
+  result.setAttribute('role', 'status');
+  result.setAttribute('aria-live', 'polite');
+  result.dataset.state = 'loading';
   result.textContent = '登録中';
   try {
     const response = await fetch('/api/items', {
       method: 'POST', headers: {'content-type':'application/json'},
       body: JSON.stringify({testKey:form.elements.testKey.value})
     });
-    result.textContent = response.ok ? '作成しました' : (response.status === 502 ? '外部システムエラー' : '登録できませんでした');
-  } catch (_) { result.textContent = '通信エラー'; }
+    if (response.ok) {
+      result.dataset.state = 'success';
+      result.textContent = '作成しました';
+    } else {
+      result.setAttribute('role', 'alert');
+      result.setAttribute('aria-live', 'assertive');
+      result.dataset.state = 'error';
+      result.textContent = response.status === 502 ? '外部システムエラー' : '登録できませんでした';
+    }
+  } catch (_) {
+    result.setAttribute('role', 'alert');
+    result.setAttribute('aria-live', 'assertive');
+    result.dataset.state = 'error';
+    result.textContent = '通信エラー';
+  }
 });`;
 
 async function parseJson(req) {
@@ -121,4 +137,4 @@ if (require.main === module) {
     });
   }).listen(PORT, '0.0.0.0', () => console.log(`Demo app listening on ${PORT}`));
 }
-module.exports = { handler, createHandler, TEST_KEY_PATTERN };
+module.exports = { handler, createHandler, TEST_KEY_PATTERN, FORM_JS };

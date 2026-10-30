@@ -1,8 +1,20 @@
 'use strict';
-// Expected values are declared BEFORE the request; never inferred from its response.
+// Expected values are declared BEFORE requests and are common to both regions.
+// changeStatus: null means keep current settings, but still assert both mock responses.
 module.exports = [
-  { id: 'both-ok', change: { a: 200, b: 200 }, mock: { a: 200, b: 200 }, http: { a: 201, b: 201 }, db: 'before-after' },
-  { id: 'both-unavailable', change: { a: 503, b: 503 }, mock: { a: 503, b: 503 }, http: { a: 502, b: 502 }, db: 'before-after' },
-  { id: 'mixed', change: { a: 200, b: 503 }, mock: { a: 200, b: 503 }, http: { a: 201, b: 502 }, db: 'before-after' },
-  { id: 'no-switch', change: null, mock: { a: 200, b: 200 }, http: { a: 201, b: 201 }, db: 'after-only' },
+  {
+    id: 'both-ok', changeStatus: 200, mockStatus: 200, httpStatus: 201,
+    ui: { text: '作成しました', role: 'status', state: 'success', live: 'polite' },
+    db: 'before-after',
+  },
+  {
+    id: 'both-unavailable', changeStatus: 503, mockStatus: 503, httpStatus: 502,
+    ui: { text: '外部システムエラー', role: 'alert', state: 'error', live: 'assertive' },
+    db: 'before-after',
+  },
+  {
+    id: 'no-switch', changeStatus: null, mockStatus: 200, httpStatus: 201,
+    ui: { text: '作成しました', role: 'status', state: 'success', live: 'polite' },
+    db: 'after-only',
+  },
 ];

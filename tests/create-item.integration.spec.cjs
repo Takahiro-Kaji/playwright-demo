@@ -27,15 +27,15 @@ for (const route of ['random', 'a', 'b']) for (const scenario of cases) {
     const original = {};
     const configured = {};
     const changed = [];
-    const evidence = { key, route, scenario, before: null, after: null, mocks: {}, response: null };
+    const evidence = { key, route, scenario, before: null, after: null, mocks: {}, response: null, ui: null };
     try {
       for (const t of targets) original[t.key] = await control(t);
       for (const t of targets) {
-        if (scenario.change && Object.hasOwn(scenario.change, t.key)) {
+        if (scenario.changeStatus !== null) {
           changed.push(t); // Restore even if a PUT reaches the mock but its reply is lost.
-          configured[t.key] = await control(t, scenario.change[t.key]);
+          configured[t.key] = await control(t, scenario.changeStatus);
         } else configured[t.key] = original[t.key];
-        expect(configured[t.key].status, `${t.region}: precondition`).toBe(scenario.mock[t.key]);
+        expect(configured[t.key].status, `${t.region}: precondition`).toBe(scenario.mockStatus);
         evidence.mocks[t.key] = { state: configured[t.key], probe: await probe(t, configured[t.key]) };
       }
       if (scenario.db === 'before-after') {
@@ -58,13 +58,28 @@ for (const route of ['random', 'a', 'b']) for (const scenario of cases) {
       expect(actual, 'Unknown response region').toBeTruthy();
       if (route === 'random') expect(headers['x-routed-region']).toBe(actual.region);
       else expect(actual.key).toBe(route);
-      expect(response.status()).toBe(scenario.http[actual.key]);
-      expect(Number(headers['x-external-status'])).toBe(scenario.mock[actual.key]);
+      expect(response.status()).toBe(scenario.httpStatus);
+      expect(Number(headers['x-external-status'])).toBe(scenario.mockStatus);
       expect(headers['x-mock-region']).toBe(actual.region);
       expect(headers['x-mock-version']).toBe(String(configured[actual.key].version));
       expect(headers['x-mock-instance-id']).toBe(configured[actual.key].instanceId);
-      const success = scenario.http[actual.key] === 201;
-      await expect(page.getByTestId('item-create-result')).toContainText(success ? '作成しました' : '外部システムエラー');
+      // UI is an independent acceptance criterion. A correct API status alone is not a PASS.
+      const feedback = page.getByTestId('item-create-result');
+      await expect(feedback, 'Expected UI feedback must be visible').toBeVisible();
+      await expect(feedback, 'Wrong user-visible message').toHaveText(scenario.ui.text);
+      await expect(feedback, 'Wrong accessibility role').toHaveAttribute('role', scenario.ui.role);
+      await expect(feedback, 'Wrong UI state').toHaveAttribute('data-state', scenario.ui.state);
+      await expect(feedback, 'Wrong live-region priority').toHaveAttribute('aria-live', scenario.ui.live);
+      evidence.ui = {
+        expected: scenario.ui,
+        actual: {
+          text: await feedback.innerText(),
+          role: await feedback.getAttribute('role'),
+          state: await feedback.getAttribute('data-state'),
+          live: await feedback.getAttribute('aria-live'),
+        },
+      };
+      const success = scenario.httpStatus === 201;
       if (scenario.db !== 'none') {
         if (success) {
           await expect.poll(async () => {
