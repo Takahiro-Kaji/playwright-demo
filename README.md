@@ -1,5 +1,6 @@
 # 2リージョン EKS × 共通RDS MySQL × Chrome 結合試験
 
+> **全体分類（1枚）：[結合試験の分類サマリー](docs/integration-test-overview-onepage.md)**
 > 試験目的・実データ取り込みの照合設計・完成条件：**[結合試験の設計方針](docs/integration-test-strategy.md)**
 > 複数の同期バッチとUIの連携、部分失敗、データ不整合、同期中操作：**[機能横断シナリオ試験・システム整合性検証方針](docs/cross-feature-system-scenarios.md)**
 >
