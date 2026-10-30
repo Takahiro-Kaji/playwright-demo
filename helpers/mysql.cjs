@@ -21,6 +21,7 @@ function buildReadOnlySql(testKey, queryOverride) {
 async function query(testKey, queryOverride, run = runCommand) {
   const optionsFile = required('MYSQL_OPTIONS_FILE');
   const host = required('MYSQL_HOST');
+  if (process.env.TEST_PROFILE === 'local' && host !== '127.0.0.1') throw new Error('Local database must use loopback');
   const database = required('MYSQL_DATABASE');
   const user = required('MYSQL_USER');
   const port = process.env.MYSQL_PORT || '3306';

@@ -9,7 +9,9 @@
     "test:integration:headed": "playwright test --headed",
     "test:list": "playwright test --list",
     "report": "playwright show-report",
-    "test:syntax": "node scripts/check-syntax.cjs"
+    "test:syntax": "node scripts/check-syntax.cjs",
+    "test:local": "node scripts/local-e2e.cjs",
+    "test:verification": "node scripts/verify-runner.cjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.0",

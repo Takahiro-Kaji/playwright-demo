@@ -12,14 +12,16 @@ let pool;
 function database() {
   if (!pool) {
     const caFile = process.env.DB_CA_FILE;
-    if (!caFile) throw new Error('DB_CA_FILE is required for authenticated TLS');
+    const local = process.env.TEST_PROFILE === 'local';
+    if (local && process.env.DB_HOST !== '127.0.0.1') throw new Error('Local database must use loopback');
+    if (!local && !caFile) throw new Error('DB_CA_FILE is required for authenticated TLS');
     pool = require('mysql2/promise').createPool({
       host: process.env.DB_HOST,
-      port: 3306,
+      port: Number(process.env.DB_PORT || 3306),
       user: process.env.DB_USER,
       password: process.env.DB_PASSWORD,
       database: process.env.DB_NAME || 'integration_demo',
-      ssl: { ca: fs.readFileSync(caFile), rejectUnauthorized: true },
+      ...(local ? {} : { ssl: { ca: fs.readFileSync(caFile), rejectUnauthorized: true } }),
       connectionLimit: 4,
       connectTimeout: 7000,
     });
@@ -135,6 +137,6 @@ if (require.main === module) {
       if (!res.headersSent) json(res, 500, { error: 'internal-error' });
       else res.destroy();
     });
-  }).listen(PORT, '0.0.0.0', () => console.log(`Demo app listening on ${PORT}`));
+  }).listen(PORT, process.env.TEST_PROFILE === 'local' ? '127.0.0.1' : '0.0.0.0', () => console.log(`Demo app listening on ${PORT}`));
 }
 module.exports = { handler, createHandler, TEST_KEY_PATTERN, FORM_JS };

@@ -8,6 +8,7 @@ module.exports = defineConfig({
   timeout: 240_000,
   expect: { timeout: 15_000 },
   workers: 1,
+  maxFailures: 1, // Stop before any later case can adopt a failed cleanup state.
   retries: 0, // Do not duplicate UI data creation on a failed test.
   forbidOnly: Boolean(process.env.CI),
   reporter: [

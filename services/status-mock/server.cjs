@@ -41,9 +41,26 @@ function createMock({ region, token, initialStatus = 200 } = {}) {
         if (Buffer.byteLength(body) > 1024) return reply(res, 413, { error: 'too-large' });
       }
       const data = JSON.parse(body);
-      if (!data || Object.keys(data).some((k) => k !== 'status') || !Number.isInteger(data.status) || data.status < 200 || data.status > 599) {
+      if (!data || Object.keys(data).some((k) => !['status', 'expected'].includes(k)) || !Number.isInteger(data.status) || data.status < 200 || data.status > 599) {
         return reply(res, 400, { error: 'status-must-be-integer-200-to-599' });
       }
+      if (Object.hasOwn(data, 'expected')) {
+        const expectedState = data.expected;
+        if (!expectedState || typeof expectedState !== 'object' || Array.isArray(expectedState)
+          || Object.keys(expectedState).sort().join(',') !== 'instanceId,region,status,version'
+          || typeof expectedState.region !== 'string' || typeof expectedState.instanceId !== 'string'
+          || !Number.isSafeInteger(expectedState.version) || expectedState.version < 0
+          || !Number.isInteger(expectedState.status) || expectedState.status < 200 || expectedState.status > 599) {
+          return reply(res, 400, { error: 'invalid-expected-state' });
+        }
+        // No await between comparison and mutation: concurrent requests cannot pass
+        // the same version. A restarted process has a different instanceId.
+        if (Object.entries(state()).some(([key, value]) => expectedState[key] !== value)) {
+          return reply(res, 409, { error: 'state-conflict', current: state() });
+        }
+      }
+      // Legacy unconditional PUT remains for existing clients. This is a CAS
+      // guarantee per mutation, not an exclusive lease across the whole scenario.
       status = data.status;
       version += 1;
       return reply(res, 200, state());

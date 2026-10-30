@@ -1,18 +1,20 @@
 'use strict';
-const { test, expect } = require('@playwright/test');
+const { expect } = require('@playwright/test');
 const { randomUUID } = require('node:crypto');
 const { setTimeout: delay } = require('node:timers/promises');
 const { assertDeploymentReady, required } = require('../helpers/kubernetes.cjs');
 const { regions } = require('../helpers/regions.cjs');
-const { control, probe } = require('../helpers/mock-control.cjs');
+const { control, compareAndSet, probe } = require('../helpers/mock-control.cjs');
 const { snapshotItems } = require('../helpers/mysql.cjs');
 const cases = require('./cases.cjs');
 
-async function attach(info, name, value) {
-  await info.attach(name, { body: JSON.stringify(value, null, 2), contentType: 'application/json' });
-}
+const { test } = require('../test-support/case-fixture.cjs');
 test.beforeAll(async () => {
   if (!['local', 'dev', 'test', 'staging'].includes(required('TEST_ENV'))) throw new Error('Non-production only');
+  if (process.env.TEST_PROFILE === 'local') {
+    if (required('TEST_ENV') !== 'local') throw new Error('Local profile requires local environment');
+    return;
+  }
   for (const region of regions()) {
     await assertDeploymentReady('demo-app', region.context);
     await assertDeploymentReady('status-mock', region.context);
@@ -21,27 +23,37 @@ test.beforeAll(async () => {
 // No serial-group dependencies: each case validates its own preconditions and restores changed settings.
 // Additional pinned runs prove both regional paths. Random samples alone cannot guarantee coverage.
 for (const route of ['random', 'a', 'b']) for (const scenario of cases) {
-  test(`${route} / ${scenario.id}`, async ({ page }, info) => {
+  test(`${route} / ${scenario.id}`, async ({ page, caseState }) => {
     const targets = regions();
     const key = `it-${randomUUID()}`;
     const original = {};
     const configured = {};
-    const changed = [];
-    const evidence = { key, route, scenario, before: null, after: null, mocks: {}, response: null, ui: null };
-    try {
+    const changes = caseState.changes;
+    const evidence = caseState.evidence = { key, route, scenario, before: null, after: null, mocks: {}, response: null, ui: null };
+      // Given: establish both mocks and the DB baseline before any UI operation.
       for (const t of targets) original[t.key] = await control(t);
       for (const t of targets) {
         if (scenario.changeStatus !== null) {
-          changed.push(t); // Restore even if a PUT reaches the mock but its reply is lost.
-          configured[t.key] = await control(t, scenario.changeStatus);
+          const change = { target: t, original: original[t.key] };
+          changes.push(change); // An unknown response is recorded without a blind restore.
+          try { configured[t.key] = change.configured = await compareAndSet(t, scenario.changeStatus, original[t.key]); }
+          catch (error) { change.configureError = error; throw error; }
         } else configured[t.key] = original[t.key];
         expect(configured[t.key].status, `${t.region}: precondition`).toBe(scenario.mockStatus);
-        evidence.mocks[t.key] = { state: configured[t.key], probe: await probe(t, configured[t.key]) };
+        const change = changes.find((item) => item.target.key === t.key);
+        try {
+          evidence.mocks[t.key] = { state: configured[t.key], probe: await probe(t, configured[t.key]) };
+          if (change) change.configuredProbe = evidence.mocks[t.key].probe;
+        } catch (error) {
+          if (change && error.probe) change.configuredProbe = error.probe;
+          throw error;
+        }
       }
       if (scenario.db === 'before-after') {
         evidence.before = await snapshotItems(key);
         expect(evidence.before).toEqual([]); // New UUID; comparison is isolated from other tests.
       }
+      // When: operate the real UI.
       const base = route === 'random' ? required('BASE_URL') : targets.find((t) => t.key === route).appUrl;
       await page.goto(`${base}/items/new`);
       await page.getByTestId('item-test-key').fill(key);
@@ -52,8 +64,9 @@ for (const route of ['random', 'a', 'b']) for (const scenario of cases) {
       });
       await page.getByTestId('item-create').click();
       const response = await responsePromise;
+      // Then: independently check HTTP, UI, DB, and mock identity.
       const headers = await response.allHeaders();
-      evidence.response = { status: response.status(), headers, body: await response.text() };
+      evidence.response = { status: response.status(), headers };
       const actual = targets.find((t) => t.region === headers['x-app-region']);
       expect(actual, 'Unknown response region').toBeTruthy();
       if (route === 'random') expect(headers['x-routed-region']).toBe(actual.region);
@@ -99,15 +112,5 @@ for (const route of ['random', 'a', 'b']) for (const scenario of cases) {
         }
       }
       for (const t of targets) expect(await control(t), 'Mock changed/restarted during the test').toEqual(configured[t.key]);
-    } finally {
-      const cleanupErrors = [];
-      for (const t of changed.reverse()) {
-        try { await control(t, original[t.key].status); }
-        catch (e) { cleanupErrors.push(`${t.region}: ${e.message}`); }
-      }
-      evidence.cleanupErrors = cleanupErrors;
-      await attach(info, 'case-evidence.json', evidence);
-      if (cleanupErrors.length) throw new Error(`Mock restore failed: ${cleanupErrors.join('; ')}`);
-    }
   });
 }
