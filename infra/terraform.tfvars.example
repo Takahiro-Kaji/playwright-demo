@@ -1,0 +1,4 @@
+aws_region    = "ap-northeast-1"
+project_name  = "play-right-demo"
+operator_cidr = "198.51.100.25/32" # REPLACE with your own current public IPv4 /32
+# eks_version = "1.37" # verify support in selected AWS Region

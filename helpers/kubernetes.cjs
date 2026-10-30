@@ -7,10 +7,13 @@ function required(name) {
   return value.trim();
 }
 
-async function assertDeploymentReady() {
+async function assertDeploymentReady(targetDeployment = null) {
   const context = required('KUBE_CONTEXT');
   const namespace = required('KUBE_NAMESPACE');
-  const deployment = required('KUBE_DEPLOYMENT');
+  const deployment = targetDeployment || required('KUBE_DEPLOYMENT');
+  if (!/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/.test(deployment)) {
+    throw new Error('Invalid Kubernetes Deployment name');
+  }
   const common = ['--context', context, '--namespace', namespace];
 
   // All commands are read-only; passing --context prevents accidental use of the default context.

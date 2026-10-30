@@ -1,88 +1,193 @@
-# Playwright × kubectl × MySQL：結合試験デモ
+# AWS EKS × Playwright（Google Chrome）× kubectl × RDS MySQL — 結合試験デモ
 
-**Google Chromeのみ**で画面操作し、Kubernetes の Deployment が稼働していることと、外部 MySQL に業務データが保存されたことを1つの Playwright 試験で検証する雛形です。**接続先・画面要素・テーブル名は仮の値であり、実環境では未実行**です。
+> **リポジトリの最終ゴール:** AWS上にデモアプリ・HTTPモックサーバー・外部MySQLの検証環境を**構築可能なソースとして定義**し、そのAWS環境を対象に Playwright（Google Chromeのみ）・`kubectl`・`mysql` CLI を組み合わせた**結合試験の成功を証跡付きで確認する**こと。
+>
+> **2026-10-30時点:** 構築用ソース・手順・試験コードを提供する段階。AWSリソースは**作成していない**。実AWSでの動作、費用、必要権限は未検証。
 
-## 試験の流れ
+## 構成図
 
-1. `kubectl --context ... rollout status deployment/...` と `kubectl get deployment` で対象 Deployment の Ready 状態を確認。
-2. Playwright が **Google Chrome（`channel: 'chrome'`）**を起動し、画面から一意のテストデータを作成。
-3. `mysql` コマンドで外部 MySQL に読み取り専用の SQL を実行。保存が非同期でも Playwright の `expect.poll()` で短時間再確認。
-4. 失敗時には Playwright のレポートとスクリーンショット／トレースを保存。
+```text
+ローカル試験端末（Node 22+ / Google Chrome / kubectl / mysql CLI）
+   ├── Playwright → localhost:18080 → kubectl port-forward ─────────┐
+   ├── kubectl → EKS Deployment / Pod 状態確認                       │
+   └── mysql CLI → localhost:13306 → kubectl port-forward ────────┐ │
+                                                                │ │
+AWS VPC ──────────────────────────────────────────────────────── │ │ ─────────
+  Amazon EKS（private subnet）                                    │ │
+     ├── demo-app (Node.js) ←─────────────────────────────────────┘ │
+     │     ├── GET /items/new（ブラウザ画面）                        │
+     │     ├── HTTP呼出 → status-mock:8081/status?code=200|503        │
+     │     └── MySQL INSERT ───────────────────┐                     │
+     ├── status-mock（返すのは HTTP ステータスのみ）                  │
+     └── db-tunnel（認証情報なしの一時TCPプロキシ） ←─────────────────┘
+                                              │
+  Amazon RDS for MySQL（private DB subnet） ←──┘
 
-> Deployment の Ready はアプリの完全な正常性を保証しません。UIでの成功表示とDBの期待値を別々に判定します。
+  Amazon ECR (demo-app / status-mock イメージ保管)
+```
 
-## 必要なもの
+- **EKS:** デモアプリ、ステータスのみ返すモックサーバー、必要時だけ使うDB中継Pod。
+- **RDS for MySQL:** EKSのVPC内からしかアクセスできない外部DB（パブリックアクセスなし）。
+- **モックサーバー:** `GET /status?code=200` → **HTTP 200**、`?code=503` → **HTTP 503**。**レスポンス本文・業務ロジック・永続化はなし**。
+- **Playwright:** **Google Chromeのみ**を使い、画面操作・画面の結果・RDS保存結果を確認。スクリーンショットとトレースは失敗時に保存。
+- **試験実行端末:** 今回の基本手順では手元PC。**検証対象のシステムはAWS上**。将来ブラウザ実行環境自体をAWSへ移す場合は別途設計する。
 
-- Node.js 22+ と npm
-- **Google Chrome（安定版）**がインストールされた実行端末（Chromium / Firefox / WebKit は実行しません）
-- 対象の非本番 Kubernetes クラスタに接続できる `kubectl`（Deployment の参照・rollout status の権限）
-- 外部 DB に接続可能な **MySQL 8系の `mysql` CLI**（VPN・ファイアウォール・許可リストなどを含む）
-- DBの**SELECT専用**ユーザー、およびブラウザ側でテストデータを作成できる検証用アカウント
+## ゴールと受入条件
 
-## セットアップ
+| ID | 到達点 | 判定に使う証跡 |
+| --- | --- | --- |
+| AWS-1 | TerraformでEKS、RDS MySQL、ECR、VPCを作成できる | `terraform apply` 成功、AWSリソースの状態 |
+| AWS-2 | EKS上の`demo-app`・`status-mock`がReady | `kubectl rollout status` と Deployment 状態 |
+| IT-1 | Chrome画面で作成し、HTTPモックが200を返し、MySQLに1件保存 | Playwright試験 PASS、DB `COUNT(*)=1` |
+| IT-2 | HTTPモックが503を返すと、画面は外部エラーになり、DBには保存されない | Playwright試験 PASS、DB `COUNT(*)=0` |
+| OPS-1 | GitHubに秘密情報が含まれず、AWSの後片付け手順が存在 | `.gitignore`、構築・削除手順の確認 |
+
+**実AWS試験は未実施のため、上表の判定は今のところ未達／未確認です。** ローカルのモック・DBコマンド組立ての単体試験と、実AWSでの結合試験を混同しません。
+
+## ソースの配置
+
+| パス | 内容 |
+| --- | --- |
+| [`infra/`](infra/) | TerraformによるAWS VPC / EKS managed node group / RDS MySQL / ECR |
+| [`services/demo-app/`](services/demo-app/) | テスト用画面、登録API、MySQL書込み処理、DB接続用TCP中継 |
+| [`services/status-mock/`](services/status-mock/) | HTTPレスポンスステータスだけ返す最小モック |
+| [`k8s/`](k8s/) | EKS Deployment / Service のテンプレート（外部公開しないClusterIP） |
+| [`scripts/`](scripts/) | ECRビルド、EKSデプロイ、MySQL初期化、port-forward、削除補助 |
+| [`tests/`](tests/) | Playwright結合試験、ローカル単体試験 |
+| [`sql/`](sql/) | MySQL検証SQL |
+
+## 実行前に重要な注意
+
+**この作業は有料AWSリソースを生成します。** EKSのクラスタ料金、EC2ノード、NAT Gateway、RDS、ECR、データ転送などは稼働中課金されます。`terraform apply` やビルド／デプロイは明示的に自分で実行してください。検証後は必ず下記の削除手順を実行してください。Terraformは支出上限を自動設定しません。
+
+- **前提:** AWS CLI v2、Terraform >=1.6、Docker（linux/amd64ビルド対応）、`kubectl`、Node.js >=22、npm、MySQL 8系CLI、Google Chrome、curl。Macでは各ツールの適切なインストールが必要です。
+- **AWS認証:** IAMのVPC / IAM Role / EKS / EC2 / NAT / RDS / ECR / Secrets Manager の作成・操作権限。ローカルのAWSプロファイルやSSOを使用。AWSアクセスキーやRDSパスワードをGitHubにコミットしないでください。
+- **ネットワーク:** EKS API公開エンドポイントは**指定した操作端末のグローバルIPv4 `/32` のみに制限**。インターネット回線やIPが変わると接続できなくなります。Private endpointも有効です。
+- **環境:** 非本番の専用AWSアカウント／VPCが望ましく、実データは使用しません。
+- **設計の簡素化:** NATは1台、RDSはシングルAZ、ノードは2台、外部LoadBalancerなし。**可用性・本番運用の構成ではありません。**
+
+## AWS作成から結合試験まで
+
+以下はリポジトリのルートで実行します。**AWSへ新規リソースを作成するのはステップ2以降です。**
+
+### 1. AWSアカウントとTerraform設定
+
+```bash
+aws sts get-caller-identity        # 意図した AWS アカウントか必ず確認
+cp infra/terraform.tfvars.example infra/terraform.tfvars
+# infra/terraform.tfvars の operator_cidr を現在のグローバルIPv4/32に変更
+# 例: curl -4 https://checkip.amazonaws.com
+terraform -chdir=infra init
+terraform -chdir=infra fmt -check
+terraform -chdir=infra validate
+terraform -chdir=infra plan -out=plan.out
+```
+
+EKSバージョンはソース初期値で `1.37`。利用するリージョンで **standard support** の対応バージョンを事前確認してください（`aws eks describe-cluster-versions --region ap-northeast-1`）。サポート外や追加延長料金の発生する旧版を選ばないでください。
+
+### 2. AWSインフラ作成（ここから課金）
+
+```bash
+terraform -chdir=infra apply plan.out
+./scripts/configure-kubectl.sh
+```
+
+EKSノードがReadyになることを確認します。`terraform.tfstate`は秘密情報を含み得るため、Git管理外で安全に保管します。チーム利用では暗号化されたリモートstateとロックの仕組みを追加してください。
+
+### 3. ECRへイメージを登録し、EKSへモック・DB接続Podを配置
+
+```bash
+./scripts/build-push.sh
+./scripts/deploy.sh core
+```
+
+ローカルに生成した `.deploy.env` にイメージURIを記録します。このファイルはGit管理外です。`status-mock` と `db-tunnel` を `integration-demo` namespace に配置します。アプリ本体はDB初期化後に配置します。
+
+### 4. RDS MySQLの初期化・DBユーザー作成
+
+RDS認証で使うCA証明書を[AWS公式RDS Trust Store](https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem)から取得します。
+
+```bash
+mkdir -p "$HOME/.config/play-right-demo"
+curl -fL https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem \
+  -o "$HOME/.config/play-right-demo/global-bundle.pem"
+export RDS_CA_FILE="$HOME/.config/play-right-demo/global-bundle.pem"
+node scripts/bootstrap-db.cjs
+```
+
+この操作は一時的に `kubectl port-forward` を開いてRDSに接続し、`items` テーブルと次の2ユーザーを用意します。
+
+- `demo_app`：INSERT/SELECTのみ。Kubernetes Secretの`app-db`にパスワードを保存し、アプリから参照します。
+- `integration_ro`：SELECTのみ。ローカルの `~/.config/play-right-demo/mysql-readonly.cnf` に`0600`で認証設定を保存します。
+
+RDSマスター認証はSecrets Managerが管理し、Terraform stateに平文のマスターパスワードを入れません。MySQLには認証付きTLSを使用します。ローカルport-forwardではRDSの接続先名と`localhost`が一致しないため、CLIの証明書検証は`VERIFY_CA`で行います。RDS自体へのパブリック接続は開きません。
+
+> **注意:** 繰り返し実行するとデモ用DBユーザーのパスワードがローテーションされます。旧アプリPodを再起動または再デプロイしてください。`integration_ro`の古い認証設定も上書きされます。
+
+### 5. デモアプリをEKSに配置
+
+```bash
+./scripts/deploy.sh app
+kubectl --context play-right-demo-eks -n integration-demo get deploy,svc,pods
+```
+
+### 6. Google Chrome＋kubectl＋MySQLの結合試験
+
+初回のみ：
 
 ```bash
 npm install
-cp .env.example .env
-# .env に実際の「非本番」接続先を設定する
+./scripts/configure-test-env.sh   # .envを初期作成。既存.envは上書きしません
 npm run test:unit
-npm run test:list
+npm run test:syntax
 ```
 
-Chromeが未インストールの場合は、公式のChromeをインストールしてください。Playwright のインストーラから入れる場合は `npx playwright install chrome` ですが、利用端末の Chrome のインストール先が変更される場合があるため注意してください。**`npx playwright install chromium` は不要**です。
-
-MySQLのパスワードは `.env` やコマンドラインに書きません。**リポジトリ外**に専用ファイルを作成してください。
-
-```ini
-# 例: /private/path/mysql-test.cnf（Gitの管理外）
-[client]
-password="REPLACE_WITH_PASSWORD"
-ssl-mode=VERIFY_IDENTITY
-ssl-ca=/absolute/path/to/server-ca.pem
-```
-
-macOS / Linux:
+**ターミナルA**（試験中は起動したまま）：
 
 ```bash
-chmod 600 /private/path/mysql-test.cnf
+node scripts/port-forward.cjs
 ```
 
-`.env` の `MYSQL_OPTIONS_FILE` にはこの絶対パスを指定します。サーバー証明書の信頼経路が確立されている場合は適切なCAファイルを指定してください。接続クライアントは MySQL 8系を想定しています。
-
-## 実環境に合わせた変更が必要な箇所
-
-| ファイル | 変更箇所 |
-| --- | --- |
-| `tests/create-item.integration.spec.cjs` | `/items/new`、`data-testid`、登録成功メッセージ、必要ならログイン処理 |
-| `sql/verify_item.sql` | `items` テーブル、`test_key`、`status='CREATED'` という仮の業務仕様 |
-| `.env` | URL、Kubernetesコンテキスト／namespace／Deployment、MySQLの接続先 |
-| MySQL認証ファイル（管理外） | SELECT専用ユーザーの認証、TLS設定 |
-
-3つの接続先は**同一の検証環境**を指すようにしてください。スクリプトは `TEST_ENV` が `local/dev/test/staging` 以外の場合は実行を拒否しますが、設定名だけのチェックなので、実際の接続先が本番でないことは運用側でも確認してください。
-
-## 実行
+**ターミナルB**：
 
 ```bash
-npm run test:unit                 # MySQL連携ロジックの単体試験（DB不要）
-npm run test:integration          # Chrome ヘッドレスで結合試験
-npm run test:integration:headed   # Chromeを表示して結合試験
-npm run report                    # HTMLレポート表示
+npm run test:integration
+npm run report
 ```
 
-**DB更新を伴うのはUI操作のみ**です。SQLは `START TRANSACTION READ ONLY` で実行し、DB権限も SELECT 専用にしてください。テストデータの削除は例示コードにはありません。UI/API またはTTLによるテストデータの後片付けを別途決めてください。
+`playwright.config.cjs` は `channel: 'chrome'` を指定し、**インストール済みGoogle Chrome**を使用します。Chromium・Firefox・WebKitのインストールは不要です。`npm run test:integration:headed` を使えば画面を表示できます。
 
-## 設計上の注意
+- 正常系：UI → EKSアプリ → モック**200** → RDS**1件** → PASS
+- 異常系：UI → EKSアプリ → モック**503** → UIにエラー → RDS**0件** → PASS
+- `kubectl rollout status` とDeploymentの実際のReady数も検証し、試験失敗時には `playwright-report/` と `test-results/` に証跡を残します。**証跡は外部への公開を避けてください。**
 
-- `mysql` CLI にプレースホルダー付きSQLバインド機能はないため、一意のテストキーを検証した後 **16進表記**としてMySQLのセッション変数に設定します。値をSQL構文として直接埋め込みません。
-- `mysql` の `--defaults-file` は最初の引数に指定し、パスワードをプロセス引数に渡しません。MySQL認証ファイルは `chmod 600` を検査します。
-- `kubectl` の操作は明示的なコンテキストに対する読み取りだけです。Kubernetes Secret は取得しません。
-- 全体試験は自動再試行しません（重複登録を防ぐため）。DB確認のみ短期間リトライします。
-- CIで実行する際は、接続先ネットワーク、DB認証ファイル、Chromeの導入を別途安全に設定してください。現時点ではCIワークフローを自動登録していません。
-- スクリーンショットやトレースにも情報が残ります。必ずダミーデータを使い、レポートを適切に管理してください。
+## 後片付け（必須）
 
-## 公式参考情報
+1. 起動中の `scripts/port-forward.cjs` をCtrl+Cで停止。
+2. **データ消失が許容される、対象の専用デモ環境であることを確認**。
+3. 下記を実行。
 
-- [Playwright Chrome channel](https://playwright.dev/docs/browsers#google-chrome--microsoft-edge)
-- [Playwright assertions](https://playwright.dev/docs/test-assertions)
-- [kubectl rollout status](https://kubernetes.io/docs/reference/kubectl/generated/kubectl_rollout/kubectl_rollout_status/)
-- [MySQL client options](https://dev.mysql.com/doc/refman/8.4/en/mysql-command-options.html)
+```bash
+./scripts/remove-db-tunnel.sh
+terraform -chdir=infra plan -destroy
+terraform -chdir=infra destroy
+```
+
+ECR内イメージもTerraform側で削除対象です。RDSは`skip_final_snapshot=true`かつ`backup_retention_period=0`なので、**DBの保存データは復旧できない可能性があります**。専用の非本番環境以外には使わないでください。`terraform destroy`後にAWSコンソール等でEKS / EC2 / NAT Gateway / EIP / RDS / ECR / Secrets Manager等の残存と課金を確認してください。
+
+## テスト設計上の制約と今後
+
+- **このリポジトリはデモであり、実AWSでの成功を主張しません。** Terraformの実applyやECRへのPush、RDS接続、EKS上での結合試験はAWSアクセス可能な環境での確認が必要です。
+- 最小モックは200/503を返すだけで、レスポンス本文・スキーマ・外部システムの業務ロジックを再現しません。
+- トランザクションは実アプリが「モック成功後にDBへINSERT」するだけです。分散トランザクションや耐障害性は対象外です。
+- 実環境のDB接続やKubernetes RBAC権限は最小化してください。DB中継Podはテスト後削除可能ですが、再試験には再配置が必要です。
+- 試験データはUUIDで識別します。自動削除しません。検証環境を削除するか、管理者が定期的に削除する運用にしてください。
+- CIではローカル単体試験と構文検査のみ実行します。AWSへの勝手なデプロイや利用料金の発生はありません。
+
+## 公式ドキュメント
+
+- [Amazon EKS: Kubernetes versions](https://docs.aws.amazon.com/eks/latest/userguide/kubernetes-versions.html)
+- [Amazon EKS: Cluster endpoint access](https://docs.aws.amazon.com/eks/latest/userguide/config-cluster-endpoint.html)
+- [RDS: Manage master passwords with Secrets Manager](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-secrets-manager.html)
+- [Playwright: Google Chrome channel](https://playwright.dev/docs/browsers#google-chrome--microsoft-edge)
+- [Terraform AWS provider documentation](https://registry.terraform.io/providers/hashicorp/aws/latest/docs)
