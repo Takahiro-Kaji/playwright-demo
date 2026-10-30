@@ -13,7 +13,9 @@
     "test:local": "node scripts/local-e2e.cjs",
     "test:verification": "node scripts/verify-runner.cjs",
     "test:batch:local": "node scripts/local-batch.cjs",
-    "test:batch:verification": "node scripts/verify-batch-failure.cjs"
+    "test:batch:verification": "node scripts/verify-batch-failure.cjs",
+    "test:cross:local": "node scripts/local-cross.cjs",
+    "test:cross:verification": "node scripts/verify-cross-no-overlap.cjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.0",
