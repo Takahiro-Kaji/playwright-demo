@@ -60,5 +60,5 @@ async function snapshotItems(testKey, run = runCommand) {
   const stdout = await query(testKey, sql, run);
   return stdout ? stdout.split('\n').map((line) => JSON.parse(line)) : [];
 }
-module.exports = { buildReadOnlySql, countCreatedItems, snapshotItems };
+module.exports = { buildReadOnlySql, query, countCreatedItems, snapshotItems };
 

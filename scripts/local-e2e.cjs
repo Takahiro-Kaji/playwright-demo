@@ -5,7 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const http = require('node:http');
 const { spawn } = require('node:child_process');
-const { randomBytes } = require('node:crypto');
+const { randomBytes, randomUUID } = require('node:crypto');
 const { setTimeout: delay } = require('node:timers/promises');
 const { startLocalMysql } = require('../test-support/local-mysql.cjs');
 const { createMock } = require('../services/status-mock/server.cjs');
@@ -15,7 +15,8 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'play-right-local-'));
 const children = [];
 const servers = [];
 const pools = [];
-let stopMysql;
+let stopMysql, runnerStatus;
+const runId = randomUUID();
 let interrupted = false;
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => {
   interrupted = true;
@@ -38,7 +39,7 @@ async function main() {
   await setup.end();
   const token = randomBytes(32).toString('hex');
   const curl = path.join(tmp, 'curl.conf'); fs.writeFileSync(curl, `header = "Authorization: Bearer ${token}"\n`, { mode: 0o600 });
-  const env = { ...process.env, TEST_PROFILE: 'local', TEST_ENV: 'local', MYSQL_HOST: '127.0.0.1', MYSQL_PORT: String(port), MYSQL_DATABASE: 'integration_demo', MYSQL_USER: 'local_test', MYSQL_OPTIONS_FILE: cnf, MOCK_CURL_CONFIG: curl };
+  const env = { ...process.env, UI_RUN_ID: runId, TEST_PROFILE: 'local', TEST_ENV: 'local', MYSQL_HOST: '127.0.0.1', MYSQL_PORT: String(port), MYSQL_DATABASE: 'integration_demo', MYSQL_USER: 'local_test', MYSQL_OPTIONS_FILE: cnf, MOCK_CURL_CONFIG: curl };
   for (const key of ['A', 'B']) {
     const region = `local-${key.toLowerCase()}`;
     const mock = createMock({ region, token });
@@ -56,16 +57,32 @@ async function main() {
   const runnerPath = process.env.LOCAL_E2E_VERIFY_SPAWN_FAILURE === '1' ? path.join(tmp, 'missing-runner') : path.join(__dirname, '../node_modules/.bin/playwright');
   const runner = spawn(runnerPath, args, { env, stdio: 'inherit' }); children.push(runner);
   const code = await new Promise((resolve, reject) => { runner.on('error', (error) => { runner.spawnError = error; reject(error); }); runner.on('exit', (status) => resolve(status ?? 1)); });
-  process.exitCode = interrupted ? 1 : code;
+  runnerStatus = interrupted ? 1 : code;
+  process.exitCode = runnerStatus;
 }
 main().catch((error) => { console.error(error); process.exitCode = 1; }).finally(async () => {
-  for (const pool of pools) await pool.end().catch(() => {});
-  for (const server of servers) await new Promise((resolve) => server.close(resolve));
+  const cleanupErrors = [];
+  for (const pool of pools) { try { await pool.end(); } catch (error) { cleanupErrors.push(error); } }
+  for (const server of servers) { try { await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); } catch (error) { cleanupErrors.push(error); } }
   for (const child of children) if (!child.spawnError && child.exitCode === null && child.signalCode === null) {
-    child.kill('SIGTERM');
-    await Promise.race([new Promise((resolve) => child.once('exit', resolve)), delay(5000)]);
-    if (child.exitCode === null && child.signalCode === null) { child.kill('SIGKILL'); await new Promise((resolve) => child.once('exit', resolve)); }
+    try {
+      child.kill('SIGTERM');
+      await Promise.race([new Promise((resolve) => child.once('exit', resolve)), delay(5000)]);
+      if (child.exitCode === null && child.signalCode === null) { child.kill('SIGKILL'); await new Promise((resolve) => child.once('exit', resolve)); }
+    } catch (error) { cleanupErrors.push(error); }
   }
-  if (stopMysql) await stopMysql();
-  fs.rmSync(tmp, { recursive: true, force: true });
+  try { if (stopMysql) await stopMysql(); } catch (error) { cleanupErrors.push(error); }
+  try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (error) { cleanupErrors.push(error); }
+  const environmentCleanup = cleanupErrors.length ? 'failed' : 'completed';
+  if (cleanupErrors.length) { for (const error of cleanupErrors) console.error(error); process.exitCode = 1; }
+  const file = path.resolve('.local', 'runs', runId, 'case-summary.json');
+  if (fs.existsSync(file)) {
+    try {
+      const summary = JSON.parse(fs.readFileSync(file, 'utf8'));
+      summary.environmentCleanup = environmentCleanup;
+      summary.runnerStatus = runnerStatus === undefined ? 'unconfirmed' : runnerStatus === 0 ? 'passed' : 'failed';
+      fs.writeFileSync(`${file}.partial`, JSON.stringify(summary, null, 2), { mode: 0o600 }); fs.renameSync(`${file}.partial`, file);
+      console.log(`UI summary: ${file}`);
+    } catch (error) { console.error('Unable to finalize UI summary:', error.message); process.exitCode = 1; }
+  }
 });
