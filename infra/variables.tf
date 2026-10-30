@@ -1,5 +1,5 @@
 variable "aws_region" {
-  description = "Region in which all demo resources are created."
+  description = "Primary region: one EKS cluster and the shared RDS database."
   type        = string
   default     = "ap-northeast-1"
 }
@@ -26,7 +26,6 @@ variable "operator_cidr" {
 variable "eks_version" {
   description = "EKS Kubernetes version under standard support; verify region availability before apply."
   type        = string
-  default     = "1.37"
 }
 
 variable "node_instance_type" {
@@ -44,4 +43,13 @@ variable "db_instance_class" {
 variable "vpc_cidr" {
   type    = string
   default = "10.42.0.0/16"
+}
+
+variable "secondary_region" {
+  type    = string
+  default = "ap-northeast-3"
+}
+variable "secondary_vpc_cidr" {
+  type    = string
+  default = "10.43.0.0/16"
 }

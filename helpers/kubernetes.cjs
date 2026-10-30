@@ -7,8 +7,8 @@ function required(name) {
   return value.trim();
 }
 
-async function assertDeploymentReady(targetDeployment = null) {
-  const context = required('KUBE_CONTEXT');
+async function assertDeploymentReady(targetDeployment = null, targetContext = null) {
+  const context = targetContext || required('KUBE_CONTEXT');
   const namespace = required('KUBE_NAMESPACE');
   const deployment = targetDeployment || required('KUBE_DEPLOYMENT');
   if (!/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/.test(deployment)) {

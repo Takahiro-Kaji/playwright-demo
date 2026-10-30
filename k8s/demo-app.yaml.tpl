@@ -18,6 +18,7 @@ spec:
           ports: [{ containerPort: 8080, name: http }]
           env:
             - { name: PORT, value: "8080" }
+            - { name: APP_REGION, value: "${APP_REGION}" }
             - { name: MOCK_URL, value: "http://status-mock:8081" }
             - { name: DB_HOST, value: "${RDS_HOST}" }
             - { name: DB_NAME, value: integration_demo }

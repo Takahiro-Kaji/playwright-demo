@@ -2,14 +2,14 @@
   "name": "playwright-kubectl-mysql-integration-demo",
   "version": "1.0.0",
   "private": true,
-  "description": "AWS EKS + RDS MySQL + HTTP status-only mock end-to-end integration demo, Google Chrome only",
+  "description": "Two-region EKS, shared RDS MySQL, random request routing, curl-controlled status mocks and Chrome integration tests",
   "scripts": {
     "test:unit": "node --test tests/*.unit.test.cjs",
     "test:integration": "playwright test",
     "test:integration:headed": "playwright test --headed",
     "test:list": "playwright test --list",
     "report": "playwright show-report",
-    "test:syntax": "node --check tests/create-item.integration.spec.cjs && node --check services/demo-app/server.cjs && node --check services/status-mock/server.cjs && node --check scripts/bootstrap-db.cjs"
+    "test:syntax": "node scripts/check-syntax.cjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.0",

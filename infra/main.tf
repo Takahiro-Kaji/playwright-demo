@@ -185,7 +185,7 @@ resource "aws_security_group" "rds" {
     from_port   = 3306
     to_port     = 3306
     protocol    = "tcp"
-    cidr_blocks = aws_subnet.private[*].cidr_block
+    cidr_blocks = concat(aws_subnet.private[*].cidr_block, module.secondary.private_subnet_cidrs)
   }
   tags = { Name = "${var.project_name}-mysql" }
 }

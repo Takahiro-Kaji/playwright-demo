@@ -1,111 +1,105 @@
-# AWS EKS × Playwright（Google Chrome）× kubectl × RDS MySQL — 結合試験デモ
+# 2リージョン EKS × 共通RDS MySQL × Chrome 結合試験
 
-> **リポジトリの最終ゴール:** AWS上にデモアプリ・HTTPモックサーバー・外部MySQLの検証環境を**構築可能なソースとして定義**し、そのAWS環境を対象に Playwright（Google Chromeのみ）・`kubectl`・`mysql` CLI を組み合わせた**結合試験の成功を証跡付きで確認する**こと。
->
-> **2026-10-30時点:** 構築用ソース・手順・試験コードを提供する段階。AWSリソースは**作成していない**。実AWSでの動作、費用、必要権限は未検証。
+**ゴール:** AWSの2リージョンにそれぞれアプリPodと外部システムのHTTPモックPodを配置し、共通DBを使用する構成で結合試験を行う。構築ソースと手順を提供する。**AWSリソースの作成・実機検証はまだ実施していない。**
 
-## 構成図
+## 今回の前提
+
+| 項目 | 定義 |
+| --- | --- |
+| リージョン | A=`ap-northeast-1`、B=`ap-northeast-3`を例示。Terraformで変更可能 |
+| アプリ／モック | 両リージョンにそれぞれ配置。アプリは同じリージョン内のモックを呼ぶ |
+| DB | リージョンAの非公開RDS MySQL **1インスタンスを共用**。レプリカや別DBではない |
+| 振り分け | 業務HTTPリクエストごとにA/Bを独立にランダム選択。50%ずつの抽選であり、回数の均等は保証しない |
+| モック切替 | リージョンを固定した管理APIをcurlで操作。テストケースごとに任意で変更 |
+| 前提確認 | 設定APIの値だけでなく、各モックへのGETで**実際のHTTPステータス**を確認 |
+| 本試験 | Chromeの登録API応答を捕捉し、事前の期待HTTPステータスと照合。応答元リージョン／実際のモックステータスも照合 |
+| DB確認 | ケース単位で「前後比較」「事後のみ」「確認なし」を選択可能。比較対象はテストキーで絞った全対象行 |
+
+**ランダム振り分けの実装場所:** 初期版は試験端末上の小さなHTTPルーター。2本の `kubectl port-forward` を通じて、AWS上の実アプリへ転送する。**AWS上のグローバルロードバランサーを構築したという意味ではない。** DNSキャッシュ等でリクエスト単位のランダム性が曖昧にならないようにした検証用構成。自動リトライ・別リージョンへのフェイルオーバーは行わず、エラーを隠さない。
 
 ```text
-ローカル試験端末（Node 22+ / Google Chrome / kubectl / mysql CLI）
-   ├── Playwright → localhost:18080 → kubectl port-forward ─────────┐
-   ├── kubectl → EKS Deployment / Pod 状態確認                       │
-   └── mysql CLI → localhost:13306 → kubectl port-forward ────────┐ │
-                                                                │ │
-AWS VPC ──────────────────────────────────────────────────────── │ │ ─────────
-  Amazon EKS（private subnet）                                    │ │
-     ├── demo-app (Node.js) ←─────────────────────────────────────┘ │
-     │     ├── GET /items/new（ブラウザ画面）                        │
-     │     ├── HTTP呼出 → status-mock:8081/status?code=200|503        │
-     │     └── MySQL INSERT ───────────────────┐                     │
-     ├── status-mock（返すのは HTTP ステータスのみ）                  │
-     └── db-tunnel（認証情報なしの一時TCPプロキシ） ←─────────────────┘
-                                              │
-  Amazon RDS for MySQL（private DB subnet） ←──┘
+ローカル端末: Google Chrome + Playwright + kubectl + curl + mysql
+  Browser → localhost:18080（リクエストごとのランダム入口）
+              ├→ localhost:18081 → EKS A / demo-app → status-mock A
+              └→ localhost:18082 → EKS B / demo-app → status-mock B
+                                   │                    │
+  EKS A / demo-app ──────────────── 共通 RDS MySQL（A） ←─ EKS B / demo-app
+                                               ↑       （リージョン間VPC Peering）
+  mysql CLI → localhost:13306 → Aの一時DB中継Pod ─┘
 
-  Amazon ECR (demo-app / status-mock イメージ保管)
+  curl → localhost:19181 → モックA管理API（認証必須）
+  curl → localhost:19182 → モックB管理API（認証必須）
+  前提GET → localhost:19081 / 19082 → 各モックの業務応答
 ```
 
-- **EKS:** デモアプリ、ステータスのみ返すモックサーバー、必要時だけ使うDB中継Pod。
-- **RDS for MySQL:** EKSのVPC内からしかアクセスできない外部DB（パブリックアクセスなし）。
-- **モックサーバー:** `GET /status?code=200` → **HTTP 200**、`?code=503` → **HTTP 503**。**レスポンス本文・業務ロジック・永続化はなし**。
-- **Playwright:** **Google Chromeのみ**を使い、画面操作・画面の結果・RDS保存結果を確認。スクリーンショットとトレースは失敗時に保存。
-- **試験実行端末:** 今回の基本手順では手元PC。**検証対象のシステムはAWS上**。将来ブラウザ実行環境自体をAWSへ移す場合は別途設計する。
+モックの業務レスポンス本文は空。ステータスと診断用ヘッダーだけを返す。管理APIだけは設定情報をJSONで返す。アプリに `mockStatus` を渡して応答を選ぶ旧方式は廃止した。
 
-## ゴールと受入条件
+## ケースの定義と実行順序
 
-| ID | 到達点 | 判定に使う証跡 |
-| --- | --- | --- |
-| AWS-1 | TerraformでEKS、RDS MySQL、ECR、VPCを作成できる | `terraform apply` 成功、AWSリソースの状態 |
-| AWS-2 | EKS上の`demo-app`・`status-mock`がReady | `kubectl rollout status` と Deployment 状態 |
-| IT-1 | Chrome画面で作成し、HTTPモックが200を返し、MySQLに1件保存 | Playwright試験 PASS、DB `COUNT(*)=1` |
-| IT-2 | HTTPモックが503を返すと、画面は外部エラーになり、DBには保存されない | Playwright試験 PASS、DB `COUNT(*)=0` |
-| OPS-1 | GitHubに秘密情報が含まれず、AWSの後片付け手順が存在 | `.gitignore`、構築・削除手順の確認 |
+[`tests/cases.cjs`](tests/cases.cjs) で前提と期待値を宣言する。期待値は**リクエスト前に固定**し、実際の応答から後付けしない。
 
-**実AWS試験は未実施のため、上表の判定は今のところ未達／未確認です。** ローカルのモック・DBコマンド組立ての単体試験と、実AWSでの結合試験を混同しません。
+| ケース | モックA / B | 期待アプリHTTP A / B | DB |
+| --- | --- | --- | --- |
+| both-ok | 200 / 200へ切替 | 201 / 201 | 前後差分 +1、内容CREATED |
+| both-unavailable | 503 / 503へ切替 | 502 / 502 | 前後不変 |
+| mixed | 200 / 503へ切替 | 201 / 502 | Aなら+1、Bなら不変 |
+| no-switch | 切替なし。200 / 200が前提 | 201 / 201 | 事後1件確認 |
 
-## ソースの配置
+各ケースを `random`、`a`固定、`b`固定で実行するため、計12ケース。固定実行はランダムで偶然片側しか選ばれない場合に備えた経路別検証で、ランダム実行そのものを置き換えるものではない。
 
-| パス | 内容 |
-| --- | --- |
-| [`infra/`](infra/) | TerraformによるAWS VPC / EKS managed node group / RDS MySQL / ECR |
-| [`services/demo-app/`](services/demo-app/) | テスト用画面、登録API、MySQL書込み処理、DB接続用TCP中継 |
-| [`services/status-mock/`](services/status-mock/) | HTTPレスポンスステータスだけ返す最小モック |
-| [`k8s/`](k8s/) | EKS Deployment / Service のテンプレート（外部公開しないClusterIP） |
-| [`scripts/`](scripts/) | ECRビルド、EKSデプロイ、MySQL初期化、port-forward、削除補助 |
-| [`tests/`](tests/) | Playwright結合試験、ローカル単体試験 |
-| [`sql/`](sql/) | MySQL検証SQL |
+実行順: 現在のモック設定退避 → 必要なリージョンだけcurlで切替 → **両リージョンの実応答が前提どおりか確認** → 任意のDB事前取得 → UI操作 → HTTP応答／リージョン／モック応答を照合 → 任意のDB事後取得・比較 → モックが途中変更・再起動されていないことを確認 → 変更した設定を復元。
 
-## 実行前に重要な注意
+- 切替なしでも前提が違えば、ケース失敗として停止する。前ケースの設定を無条件で引き継がない。
+- モックごとに `instanceId` と `version` を持ち、事前確認と本試験で一致するか確認。Pod再起動や他実行による状態変更を検出する。
+- 失敗時も `finally` で変更済み設定の復元を試みる。復元失敗も記録して失敗扱いにする。
+- 各ケースはUUIDのテストキーで分離。DB全件件数の比較で他ケースのデータと混同しない。行のIDは精度を失わないよう文字列で取得する。
+- DB不変は最初の0件だけで合格にせず、**2秒間繰り返し比較**する。無期限に変更が起きない証明ではない。非同期業務を追加する場合は完了条件・観測時間を再設計する。
+- `workers: 1`、テスト再試行なし。共有モックに対して**別端末・別CIから同時実行しない**。複数Pod化・並列化には外部の設定ストアまたはケースごとのモック隔離が必要。
+- 現在のモックは各リージョン1 Pod・Recreate更新・メモリ上の状態。再起動後は200に戻る。
 
-**この作業は有料AWSリソースを生成します。** EKSのクラスタ料金、EC2ノード、NAT Gateway、RDS、ECR、データ転送などは稼働中課金されます。`terraform apply` やビルド／デプロイは明示的に自分で実行してください。検証後は必ず下記の削除手順を実行してください。Terraformは支出上限を自動設定しません。
+## ファイル
 
-- **前提:** AWS CLI v2、Terraform >=1.6、Docker（linux/amd64ビルド対応）、`kubectl`、Node.js >=22、npm、MySQL 8系CLI、Google Chrome、curl。Macでは各ツールの適切なインストールが必要です。
-- **AWS認証:** IAMのVPC / IAM Role / EKS / EC2 / NAT / RDS / ECR / Secrets Manager の作成・操作権限。ローカルのAWSプロファイルやSSOを使用。AWSアクセスキーやRDSパスワードをGitHubにコミットしないでください。
-- **ネットワーク:** EKS API公開エンドポイントは**指定した操作端末のグローバルIPv4 `/32` のみに制限**。インターネット回線やIPが変わると接続できなくなります。Private endpointも有効です。
-- **環境:** 非本番の専用AWSアカウント／VPCが望ましく、実データは使用しません。
-- **設計の簡素化:** NATは1台、RDSはシングルAZ、ノードは2台、外部LoadBalancerなし。**可用性・本番運用の構成ではありません。**
+`infra/` は既存のA側基盤に、B側EKS/VPC/ECRとリージョン間Peering・往復経路を追加する。RDSの3306番は両側のノード／PodサブネットCIDRだけに許可する。`services/` はアプリとモック、`k8s/` は配置テンプレート、`helpers/` はルーター・curl制御・DBスナップショット、`scripts/` は構築と試験接続の手順を実行する補助コード。
 
-## AWS作成から結合試験まで
+## 構築手順（実行すると課金）
 
-以下はリポジトリのルートで実行します。**AWSへ新規リソースを作成するのはステップ2以降です。**
+前提: AWS CLI v2、Terraform >=1.6、Docker（linux/amd64）、kubectl、curl、Node.js >=22、npm、MySQL 8系CLI、インストール済みGoogle Chrome。AWS認証には自分の検証用アカウントのプロファイル／SSOを使用する。権限はIAM、EKS、EC2/VPC/Peering、RDS、ECR、Secrets Manager等が必要。AWS権限・対応バージョンは実行環境で検証する。
 
-### 1. AWSアカウントとTerraform設定
+**2 EKSクラスタ・4 EC2ノード・2 NAT Gateway・1 RDSなどの料金が発生する。** 非本番専用。データ転送料も確認する。これは高可用性構成ではなく、共通DBはAリージョンへの依存・単一障害点となる。
+
+### 1. 設定・計画
 
 ```bash
-aws sts get-caller-identity        # 意図した AWS アカウントか必ず確認
+aws sts get-caller-identity
 cp infra/terraform.tfvars.example infra/terraform.tfvars
-# infra/terraform.tfvars の operator_cidr を現在のグローバルIPv4/32に変更
-# 例: curl -4 https://checkip.amazonaws.com
+# operator_cidrを実際のグローバルIPv4/32へ変更。
+# 非重複のIPv4 /16を2つ指定。例は10.42.0.0/16と10.43.0.0/16。
+aws eks describe-cluster-versions --region ap-northeast-1
+aws eks describe-cluster-versions --region ap-northeast-3
+# 両リージョンでstandard supportのeks_versionをterraform.tfvarsに設定。
+# バージョンは自動選択しない。以前の仮値1.37は既定値から削除した。
 terraform -chdir=infra init
-terraform -chdir=infra fmt -check
+terraform -chdir=infra fmt -recursive
 terraform -chdir=infra validate
 terraform -chdir=infra plan -out=plan.out
-```
-
-EKSバージョンはソース初期値で `1.37`。利用するリージョンで **standard support** の対応バージョンを事前確認してください（`aws eks describe-cluster-versions --region ap-northeast-1`）。サポート外や追加延長料金の発生する旧版を選ばないでください。
-
-### 2. AWSインフラ作成（ここから課金）
-
-```bash
+# 作成対象・費用・削除設定を確認してから実行
 terraform -chdir=infra apply plan.out
-./scripts/configure-kubectl.sh
+bash scripts/configure-kubectl.sh
 ```
 
-EKSノードがReadyになることを確認します。`terraform.tfstate`は秘密情報を含み得るため、Git管理外で安全に保管します。チーム利用では暗号化されたリモートstateとロックの仕組みを追加してください。
+既存環境がある場合もplanの差分を確認する。stateはGitへ保存しない。チーム利用では暗号化・ロック付きリモートstateを設計する。EKS APIは操作端末のCIDRに制限し、アプリ・モック・RDSは外部公開しない。
 
-### 3. ECRへイメージを登録し、EKSへモック・DB接続Podを配置
+### 2. 両リージョンにイメージとモックを配置
 
 ```bash
-./scripts/build-push.sh
-./scripts/deploy.sh core
+bash scripts/build-push.sh            # 両ECRへビルド・push
+node scripts/configure-mocks.cjs      # 両namespace・管理用Secretを用意
+bash scripts/deploy.sh core           # 両モック、AだけDB中継Pod
 ```
 
-ローカルに生成した `.deploy.env` にイメージURIを記録します。このファイルはGit管理外です。`status-mock` と `db-tunnel` を `integration-demo` namespace に配置します。アプリ本体はDB初期化後に配置します。
+管理トークンは `~/.config/play-right-demo/mock-admin.token`、curl認証設定は同ディレクトリの `mock-curl.conf` に0600で保存する。Git・コマンド引数・試験証跡にトークンを入れない。管理ポートはClusterIPとローカルport-forwardのみで扱い、インターネットへ公開しない。
 
-### 4. RDS MySQLの初期化・DBユーザー作成
-
-RDS認証で使うCA証明書を[AWS公式RDS Trust Store](https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem)から取得します。
+### 3. 共通DB初期化と両アプリ配置
 
 ```bash
 mkdir -p "$HOME/.config/play-right-demo"
@@ -113,81 +107,91 @@ curl -fL https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem \
   -o "$HOME/.config/play-right-demo/global-bundle.pem"
 export RDS_CA_FILE="$HOME/.config/play-right-demo/global-bundle.pem"
 node scripts/bootstrap-db.cjs
+bash scripts/deploy.sh app
 ```
 
-この操作は一時的に `kubectl port-forward` を開いてRDSに接続し、`items` テーブルと次の2ユーザーを用意します。
+DBは一度だけ初期化し、同じDB接続用Secret／CAを両EKSへ登録する。アプリはINSERT/SELECTユーザー、検証はSELECT専用ユーザーを使う。マスター認証はSecrets Managerから取得する。RDSは非公開・TLS利用。ローカルDBトンネルは `VERIFY_CA`（localhostがRDSの証明書名と一致しないため）であり、ホスト名検証まで行う `VERIFY_IDENTITY` と同等ではない。アクセスするAWSアカウントとkubectlコンテキストも確認する。
 
-- `demo_app`：INSERT/SELECTのみ。Kubernetes Secretの`app-db`にパスワードを保存し、アプリから参照します。
-- `integration_ro`：SELECTのみ。ローカルの `~/.config/play-right-demo/mysql-readonly.cnf` に`0600`で認証設定を保存します。
-
-RDSマスター認証はSecrets Managerが管理し、Terraform stateに平文のマスターパスワードを入れません。MySQLには認証付きTLSを使用します。ローカルport-forwardではRDSの接続先名と`localhost`が一致しないため、CLIの証明書検証は`VERIFY_CA`で行います。RDS自体へのパブリック接続は開きません。
-
-> **注意:** 繰り返し実行するとデモ用DBユーザーのパスワードがローテーションされます。旧アプリPodを再起動または再デプロイしてください。`integration_ro`の古い認証設定も上書きされます。
-
-### 5. デモアプリをEKSに配置
+再初期化はDBパスワードを変更する。既に動いている**両リージョンのアプリPod**をその後明示的に再起動し、Readyを確認する。途中失敗した場合は両SecretとDBを再同期してから試験する。
 
 ```bash
-./scripts/deploy.sh app
-kubectl --context play-right-demo-eks -n integration-demo get deploy,svc,pods
+# 初期化を再実行した場合だけ。実際のcluster_nameに合わせる。
+kubectl --context play-right-demo-eks -n integration-demo rollout restart deployment/demo-app
+kubectl --context play-right-demo-b-eks -n integration-demo rollout restart deployment/demo-app
 ```
 
-### 6. Google Chrome＋kubectl＋MySQLの結合試験
-
-初回のみ：
+### 4. 接続と試験
 
 ```bash
 npm install
-./scripts/configure-test-env.sh   # .envを初期作成。既存.envは上書きしません
+bash scripts/configure-test-env.sh # 旧.envは退避してから。上書きしない。
 npm run test:unit
 npm run test:syntax
+npm run test:list                # 12ケースを確認
 ```
 
-**ターミナルA**（試験中は起動したまま）：
+ターミナルA:
 
 ```bash
-node scripts/port-forward.cjs
+node scripts/port-forward.cjs   # 7本の転送とローカルランダムルーター。Ctrl+Cで終了。
 ```
 
-**ターミナルB**：
+ターミナルB:
 
 ```bash
 npm run test:integration
 npm run report
+# 特定ケースだけ:
+npm run test:integration -- --grep 'random / mixed'
 ```
 
-`playwright.config.cjs` は `channel: 'chrome'` を指定し、**インストール済みGoogle Chrome**を使用します。Chromium・Firefox・WebKitのインストールは不要です。`npm run test:integration:headed` を使えば画面を表示できます。
+Playwrightは `channel: 'chrome'` のみを使う。各ケースの `case-evidence.json` に期待値、モック前提、HTTPステータス／応答元、DB前後、復元結果を残す。スクリーンショット／トレースは失敗時保存。ダミーデータのみ使用し、証跡を公開しない。
 
-- 正常系：UI → EKSアプリ → モック**200** → RDS**1件** → PASS
-- 異常系：UI → EKSアプリ → モック**503** → UIにエラー → RDS**0件** → PASS
-- `kubectl rollout status` とDeploymentの実際のReady数も検証し、試験失敗時には `playwright-report/` と `test-results/` に証跡を残します。**証跡は外部への公開を避けてください。**
+## curlでモックの応答を切り替える
 
-## 後片付け（必須）
-
-1. 起動中の `scripts/port-forward.cjs` をCtrl+Cで停止。
-2. **データ消失が許容される、対象の専用デモ環境であることを確認**。
-3. 下記を実行。
+前項のport-forwardが起動中であること。Aの設定を503に変更する例:
 
 ```bash
-./scripts/remove-db-tunnel.sh
+curl --disable --config "$HOME/.config/play-right-demo/mock-curl.conf" \
+  --silent --show-error --fail-with-body --request PUT \
+  --header 'Content-Type: application/json' \
+  --data '{"status":503}' http://127.0.0.1:19181/admin/status
+
+# 管理設定を読む
+curl --disable --config "$HOME/.config/play-right-demo/mock-curl.conf" \
+  --silent --show-error --fail-with-body http://127.0.0.1:19181/admin/status
+
+# 実際の業務HTTPステータスを確認（503自体が期待結果なので--failは付けない）
+curl --silent --show-error --output /dev/null --write-out '%{http_code}\n' \
+  http://127.0.0.1:19081/status
+```
+
+Bの管理は `19182`、業務応答は `19082`。元に戻すには `{"status":200}` をPUTする。管理APIのHTTP 200は「設定操作の成功」であり、業務の応答ステータス503とは別。200〜599の整数を設定可能。業務API `/status?code=...` からの応答上書きは禁止。
+
+## 検証状況と残作業
+
+この更新でローカル単体テスト7件とJavaScript／Shell構文検査を実施。2つの実HTTPアプリ・2つのモック・実curl・ローカルルーターの連携を検証したが、DBは単体試験用アダプターでありRDSではない。MySQL CLI組立ては模擬コマンドで検証。
+
+**Terraform validate/plan、コンテナビルド、Chromeでの12ケース実行、リージョン間通信、AWS上の実MySQL照合は未実施。** 現在の作業環境にはTerraform／Chrome等がなく、外部配布サーバーへの接続もできなかった。ソースのローカル試験とAWS実機試験を混同しない。
+
+次の受入条件は、両EKSのReady、B→共通RDSの接続、curl切替／復元、12ケースのPASSと証跡、削除完了。ランダム試験での応答回数が必ず半々になることは受入条件にしない。
+
+## 削除
+
+試験接続をCtrl+Cで停止し、専用検証環境でデータ消失が許されることを確認する。
+
+```bash
+bash scripts/remove-db-tunnel.sh
 terraform -chdir=infra plan -destroy
 terraform -chdir=infra destroy
 ```
 
-ECR内イメージもTerraform側で削除対象です。RDSは`skip_final_snapshot=true`かつ`backup_retention_period=0`なので、**DBの保存データは復旧できない可能性があります**。専用の非本番環境以外には使わないでください。`terraform destroy`後にAWSコンソール等でEKS / EC2 / NAT Gateway / EIP / RDS / ECR / Secrets Manager等の残存と課金を確認してください。
+両リージョンのEKS/EC2/NAT/EIP/ECRとPeering、AのRDS/Secrets Managerが残っていないか確認する。RDSは最終スナップショットなし・バックアップ保持0日というデモ設定。テストデータは自動削除しない。必要な証跡は秘密情報の扱いに注意して退避し、不要なローカル認証ファイルも削除する。
 
-## テスト設計上の制約と今後
+## 公式資料
 
-- **このリポジトリはデモであり、実AWSでの成功を主張しません。** Terraformの実applyやECRへのPush、RDS接続、EKS上での結合試験はAWSアクセス可能な環境での確認が必要です。
-- 最小モックは200/503を返すだけで、レスポンス本文・スキーマ・外部システムの業務ロジックを再現しません。
-- トランザクションは実アプリが「モック成功後にDBへINSERT」するだけです。分散トランザクションや耐障害性は対象外です。
-- 実環境のDB接続やKubernetes RBAC権限は最小化してください。DB中継Podはテスト後削除可能ですが、再試験には再配置が必要です。
-- 試験データはUUIDで識別します。自動削除しません。検証環境を削除するか、管理者が定期的に削除する運用にしてください。
-- CIではローカル単体試験と構文検査のみ実行します。AWSへの勝手なデプロイや利用料金の発生はありません。
-
-## 公式ドキュメント
-
-- [Amazon EKS: Kubernetes versions](https://docs.aws.amazon.com/eks/latest/userguide/kubernetes-versions.html)
-- [Amazon EKS: Cluster endpoint access](https://docs.aws.amazon.com/eks/latest/userguide/config-cluster-endpoint.html)
-- [RDS: Manage master passwords with Secrets Manager](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-secrets-manager.html)
-- [Playwright: Google Chrome channel](https://playwright.dev/docs/browsers#google-chrome--microsoft-edge)
-- [Terraform AWS provider documentation](https://registry.terraform.io/providers/hashicorp/aws/latest/docs)
+- [VPC Peering: 往復ルート・非重複CIDR](https://docs.aws.amazon.com/vpc/latest/peering/vpc-peering-basics.html)
+- [リージョン間では相手SGを参照できないためCIDRを使う](https://docs.aws.amazon.com/vpc/latest/peering/vpc-peering-security-groups.html)
+- [Terraform: cross-region peering accepter](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/vpc_peering_connection_accepter)
+- [Playwright: 応答を捕捉してステータスを検証](https://playwright.dev/docs/network)
+- [EKS対応バージョン](https://docs.aws.amazon.com/eks/latest/userguide/kubernetes-versions.html)

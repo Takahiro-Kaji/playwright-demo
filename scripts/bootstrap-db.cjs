@@ -44,6 +44,7 @@ async function main() {
   if (!caPath || !fs.statSync(caPath).isFile()) throw new Error('Set RDS_CA_FILE to downloaded AWS RDS global-bundle.pem');
   const region = await out('region');
   const cluster = await out('cluster_name');
+  const secondary = await out('secondary_cluster_name');
   const secretArn = await out('db_master_secret_arn');
   const secret = await runCommand('aws', [
     'secretsmanager', 'get-secret-value', '--secret-id', secretArn,
@@ -60,6 +61,7 @@ async function main() {
   const readPassword = crypto.randomBytes(24).toString('hex');
   let bridge;
   try {
+    if (await isListening(13306)) throw new Error('Port 13306 is already in use; stop other forwards before DB initialization');
     bridge = spawn('kubectl', [
       '--context', cluster, '-n', 'integration-demo', 'port-forward',
       'svc/db-tunnel', '13306:3306', '--address', '127.0.0.1',
@@ -89,17 +91,20 @@ GRANT SELECT ON integration_demo.items TO 'integration_ro'@'%';
       '--protocol=TCP', '--database=integration_demo', '--batch', '--silent',
     ], { input: sql, timeoutMs: 30_000 });
 
-    await applyK8s(cluster, {
+    for (const context of [cluster, secondary]) {
+    await applyK8s(context, {
       apiVersion: 'v1', kind: 'Secret',
       metadata: { name: 'app-db', namespace: 'integration-demo' },
       type: 'Opaque', stringData: { username: 'demo_app', password: appPassword },
     });
     const ca = fs.readFileSync(caPath, 'utf8');
-    await applyK8s(cluster, {
+    await applyK8s(context, {
       apiVersion: 'v1', kind: 'ConfigMap',
       metadata: { name: 'rds-ca', namespace: 'integration-demo' },
       data: { 'global-bundle.pem': ca },
     });
+
+    }
 
     const privateDir = path.join(os.homedir(), '.config', 'play-right-demo');
     fs.mkdirSync(privateDir, { recursive: true, mode: 0o700 });

@@ -9,16 +9,16 @@ const { required } = require('./kubernetes.cjs');
  * test key as a hex literal, then use a session variable in a read-only transaction.
  * This avoids inserting user text into SQL syntax.
  */
-function buildReadOnlySql(testKey) {
+function buildReadOnlySql(testKey, queryOverride) {
   if (typeof testKey !== 'string' || !/^it-[0-9a-f-]{36}$/.test(testKey)) {
     throw new Error('Invalid generated integration test key');
   }
   const hex = Buffer.from(testKey, 'utf8').toString('hex');
-  const query = fs.readFileSync(path.join(__dirname, '../sql/verify_item.sql'), 'utf8').trim();
+  const query = queryOverride || fs.readFileSync(path.join(__dirname, '../sql/verify_item.sql'), 'utf8').trim();
   return `SET @test_key = CONVERT(0x${hex} USING utf8mb4);\nSTART TRANSACTION READ ONLY;\n${query}\nCOMMIT;\n`;
 }
 
-async function countCreatedItems(testKey, run = runCommand) {
+async function query(testKey, queryOverride, run = runCommand) {
   const optionsFile = required('MYSQL_OPTIONS_FILE');
   const host = required('MYSQL_HOST');
   const database = required('MYSQL_DATABASE');
@@ -39,13 +39,25 @@ async function countCreatedItems(testKey, run = runCommand) {
     '--default-character-set=utf8mb4', '--connect-timeout=10',
     '--host', host, '--port', port, '--user', user, '--database', database,
   ], {
-    input: buildReadOnlySql(testKey),
+    input: buildReadOnlySql(testKey, queryOverride),
     timeoutMs: 15_000,
   });
+  return stdout;
+}
+
+async function countCreatedItems(testKey, run = runCommand) {
+  const stdout = await query(testKey, undefined, run);
   if (!/^\d+$/.test(stdout) || !Number.isSafeInteger(Number(stdout))) {
     throw new Error(`Unexpected MySQL count result: ${JSON.stringify(stdout)}`);
   }
   return Number(stdout);
 }
 
-module.exports = { buildReadOnlySql, countCreatedItems };
+
+async function snapshotItems(testKey, run = runCommand) {
+  const sql = "SELECT JSON_OBJECT('id', CAST(id AS CHAR), 'testKey', test_key, 'status', status, 'createdAt', CAST(created_at AS CHAR)) FROM items WHERE test_key = @test_key ORDER BY id;";
+  const stdout = await query(testKey, sql, run);
+  return stdout ? stdout.split('\n').map((line) => JSON.parse(line)) : [];
+}
+module.exports = { buildReadOnlySql, countCreatedItems, snapshotItems };
+

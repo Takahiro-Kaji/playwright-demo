@@ -5,7 +5,7 @@ const { defineConfig } = require('@playwright/test');
 module.exports = defineConfig({
   testDir: './tests',
   testMatch: '**/*.integration.spec.cjs',
-  timeout: 100_000,
+  timeout: 240_000,
   expect: { timeout: 15_000 },
   workers: 1,
   retries: 0, // Do not duplicate UI data creation on a failed test.

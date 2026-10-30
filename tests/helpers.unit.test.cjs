@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { buildReadOnlySql, countCreatedItems } = require('../helpers/mysql.cjs');
+const { buildReadOnlySql, countCreatedItems, snapshotItems } = require('../helpers/mysql.cjs');
 
 const KEY = 'it-12345678-1234-1234-1234-123456789abc';
 
@@ -43,7 +43,18 @@ test('MySQL CLI is invoked with a protected credential file, not a password argu
       assert.match(opts.input, /START TRANSACTION READ ONLY;/);
       return { stdout: '1', stderr: '' };
     });
+
     assert.equal(count, 1);
+    const rows = await snapshotItems(KEY, async (_cmd, _args, opts) => {
+      assert.match(opts.input, /JSON_OBJECT/);
+      assert.match(opts.input, /ORDER BY id/);
+      assert.doesNotMatch(opts.input, /status = 'CREATED'/); // Include unexpected states in the diff.
+      return { stdout: JSON.stringify({ id: '9007199254740993', testKey: KEY, status: 'UNEXPECTED', createdAt: '2026-01-01 00:00:00' }) };
+    });
+    assert.equal(rows[0].id, '9007199254740993');
+    assert.equal(rows[0].status, 'UNEXPECTED');
+    assert.deepEqual(await snapshotItems(KEY, async () => ({ stdout: '' })), []);
+
   } finally {
     for (const key of keys) {
       if (old[key] === undefined) delete process.env[key];

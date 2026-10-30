@@ -1,19 +1,19 @@
 'use strict';
 const http = require('node:http');
 const fs = require('node:fs');
-const mysql = require('mysql2/promise');
+
 
 const PORT = Number(process.env.PORT || '8080');
 const MOCK_URL = process.env.MOCK_URL || 'http://status-mock:8081';
 const TEST_KEY_PATTERN = /^it-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-const ALLOWED_CODES = new Set([200, 503]);
+const APP_REGION = process.env.APP_REGION || 'local';
 let pool;
 
 function database() {
   if (!pool) {
     const caFile = process.env.DB_CA_FILE;
     if (!caFile) throw new Error('DB_CA_FILE is required for authenticated TLS');
-    pool = mysql.createPool({
+    pool = require('mysql2/promise').createPool({
       host: process.env.DB_HOST,
       port: 3306,
       user: process.env.DB_USER,
@@ -31,7 +31,7 @@ const PAGE = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>
 <meta name="viewport" content="width=device-width,initial-scale=1"></head><body>
 <h1>結合試験デモ</h1><p>EKS アプリ → モックHTTP → RDS MySQL</p>
 <form id="item-form"><label>テストキー <input required data-testid="item-test-key" name="testKey"></label>
-<label>モックの応答 <select name="mockStatus" data-testid="mock-status"><option value="200">200</option><option value="503">503</option></select></label>
+
 <button type="submit" data-testid="item-create">登録</button></form>
 <p role="status" aria-live="polite" data-testid="item-create-result"></p>
 <script src="/form.js" defer></script></body></html>`;
@@ -44,7 +44,7 @@ const FORM_JS = `document.getElementById('item-form').addEventListener('submit',
   try {
     const response = await fetch('/api/items', {
       method: 'POST', headers: {'content-type':'application/json'},
-      body: JSON.stringify({testKey:form.elements.testKey.value, mockStatus:Number(form.elements.mockStatus.value)})
+      body: JSON.stringify({testKey:form.elements.testKey.value})
     });
     result.textContent = response.ok ? '作成しました' : (response.status === 502 ? '外部システムエラー' : '登録できませんでした');
   } catch (_) { result.textContent = '通信エラー'; }
@@ -65,7 +65,9 @@ function json(res, status, value) {
   res.end(body);
 }
 
-async function handler(req, res) {
+function createHandler({ region = APP_REGION, db = database, mockUrl = MOCK_URL } = {}) {
+return async function handler(req, res) {
+  res.setHeader('x-app-region', region);
   const path = new URL(req.url, 'http://127.0.0.1').pathname;
   if (req.method === 'GET' && path === '/healthz') return json(res, 200, { ready: true });
   if (req.method === 'GET' && (path === '/' || path === '/items/new')) {
@@ -81,18 +83,24 @@ async function handler(req, res) {
     try {
       data = await parseJson(req);
     } catch (_) { return json(res, 400, { error: 'invalid-json' }); }
-    if (!TEST_KEY_PATTERN.test(data.testKey) || !ALLOWED_CODES.has(data.mockStatus)) {
+    if (!data || typeof data.testKey !== 'string' || !TEST_KEY_PATTERN.test(data.testKey) || Object.keys(data).some((k) => k !== 'testKey')) {
       return json(res, 400, { error: 'invalid-request' });
     }
     let response;
     try {
-      response = await fetch(`${MOCK_URL}/status?code=${data.mockStatus}`, {
-        signal: AbortSignal.timeout(3000),
+      response = await fetch(`${mockUrl}/status`, {
+        signal: AbortSignal.timeout(3000), redirect: 'manual',
       });
     } catch (_) { return json(res, 502, { error: 'mock-unreachable' }); }
+    res.setHeader('x-external-status', String(response.status));
+    for (const name of ['x-mock-region', 'x-mock-version', 'x-mock-instance-id']) {
+      res.setHeader(name, response.headers.get(name) || 'missing');
+    }
+    await response.arrayBuffer();
+    if (response.headers.get('x-mock-region') !== region) return json(res, 502, { error: 'wrong-mock-region' });
     if (!response.ok) return json(res, 502, { error: 'external-system-unavailable', externalStatus: response.status });
     try {
-      await database().execute('INSERT INTO items (test_key, status) VALUES (?, ?)', [data.testKey, 'CREATED']);
+      await db().execute('INSERT INTO items (test_key, status) VALUES (?, ?)', [data.testKey, 'CREATED']);
     } catch (error) {
       console.error('Insert failed:', error.code || error.message);
       return json(res, error.code === 'ER_DUP_ENTRY' ? 409 : 500, { error: 'database-insert-failed' });
@@ -100,7 +108,9 @@ async function handler(req, res) {
     return json(res, 201, { status: 'CREATED', testKey: data.testKey });
   }
   return json(res, 404, { error: 'not-found' });
+};
 }
+const handler = createHandler();
 
 if (require.main === module) {
   http.createServer((req, res) => {
@@ -111,4 +121,4 @@ if (require.main === module) {
     });
   }).listen(PORT, '0.0.0.0', () => console.log(`Demo app listening on ${PORT}`));
 }
-module.exports = { handler, TEST_KEY_PATTERN };
+module.exports = { handler, createHandler, TEST_KEY_PATTERN };

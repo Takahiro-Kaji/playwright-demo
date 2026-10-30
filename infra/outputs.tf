@@ -22,3 +22,8 @@ output "mock_ecr_url" {
 output "aws_account_id" {
   value = data.aws_caller_identity.current.account_id
 }
+
+output "secondary_region" { value = var.secondary_region }
+output "secondary_cluster_name" { value = module.secondary.cluster_name }
+output "secondary_app_ecr_url" { value = module.secondary.app_ecr_url }
+output "secondary_mock_ecr_url" { value = module.secondary.mock_ecr_url }
