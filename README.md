@@ -1,5 +1,7 @@
 # 2リージョン EKS × 共通RDS MySQL × Chrome 結合試験
 
+> **リポジトリの設計資料：** [責務と合意済み4論点](docs/repository-foundations.md) → [ディレクトリ構成](docs/directory-structure.md) → [設計・実装ルール](docs/design-and-implementation-rules.md)。配置とルールは**新設計提案であり、現行コードは未移行**。以下の現行デモの構成・手順とは区別する。
+
 > **全体分類（1枚）：[結合試験の分類サマリー](docs/integration-test-overview-onepage.md)**
 > 試験目的・実データ取り込みの照合設計・完成条件：**[結合試験の設計方針](docs/integration-test-strategy.md)**
 > 複数の同期バッチとUIの連携、部分失敗、データ不整合、同期中操作：**[機能横断シナリオ試験・システム整合性検証方針](docs/cross-feature-system-scenarios.md)**
@@ -237,3 +239,4 @@ terraform -chdir=infra destroy
 - [Terraform: cross-region peering accepter](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/vpc_peering_connection_accepter)
 - [Playwright: 応答を捕捉してステータスを検証](https://playwright.dev/docs/network)
 - [EKS対応バージョン](https://docs.aws.amazon.com/eks/latest/userguide/kubernetes-versions.html)
+
