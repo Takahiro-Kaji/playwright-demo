@@ -2,10 +2,11 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const { randomUUID } = require('node:crypto');
 const { startLocalMysql } = require('../test-support/local-mysql.cjs');
 const { createSource } = require('../mocks/reference-source/server.cjs');
 const { setTimeout: delay } = require('node:timers/promises');
-let mysql, server, runner, credentials, runnerError, work;
+let mysql, server, runner, credentials, runnerError, work, runDir, runnerStatus;
 let interrupted = false;
 function signalGroup(signal) {
   if (!runner || !runner.pid) return;
@@ -20,6 +21,8 @@ for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => {
   signalGroup('SIGTERM');
 });
 async function main() {
+  runDir = path.resolve('.local', 'runs', randomUUID());
+  fs.mkdirSync(runDir, { recursive: true, mode: 0o700 });
   mysql = await startLocalMysql();
   if (interrupted) throw new Error('Interrupted');
   const count = Number(process.env.BATCH_SIZE || 2);
@@ -30,19 +33,40 @@ async function main() {
   fs.writeFileSync(credentials, JSON.stringify({ host: mysql.connection.host, port: mysql.connection.port, user: mysql.connection.user, password: mysql.connection.password, database: mysql.connection.database }), { mode: 0o600 });
   fs.mkdirSync(path.resolve('.local'), { recursive: true, mode: 0o700 });
   work = fs.mkdtempSync(path.resolve('.local', 'batch-'));
-  const env = { ...process.env, BATCH_WORK_DIR: work, BATCH_CONNECTION_FILE: credentials, BATCH_SOURCE_URL: `http://127.0.0.1:${server.address().port}`, BATCH_SIZE: String(count) };
+  const env = { ...process.env, BATCH_WORK_DIR: work, BATCH_RUN_DIR: runDir, BATCH_CONNECTION_FILE: credentials, BATCH_SOURCE_URL: `http://127.0.0.1:${server.address().port}`, BATCH_SIZE: String(count) };
   runner = spawn(path.join(__dirname, '../node_modules/.bin/playwright'), ['test', '-c', 'tests/scenarios/batch/playwright.config.cjs'], { env, stdio: 'inherit', detached: true });
   const status = await new Promise((resolve, reject) => { runner.on('error', (error) => { runnerError = error; reject(error); }); runner.on('exit', (code) => resolve(code ?? 1)); });
-  process.exitCode = interrupted ? 1 : status;
+  runnerStatus = interrupted ? 1 : status;
+  process.exitCode = runnerStatus;
 }
 main().catch((e) => { console.error(e); process.exitCode = 1; }).finally(async () => {
-  if (runner && !runnerError) {
-    signalGroup('SIGTERM');
-    for (let i = 0; i < 50 && groupAlive(); i++) await delay(100);
-    if (groupAlive()) { signalGroup('SIGKILL'); for (let i = 0; i < 50 && groupAlive(); i++) await delay(100); }
-    if (groupAlive()) { console.error('Owned process group still alive; retaining MySQL for recovery'); process.exitCode = 1; return; }
+  const cleanupErrors = [];
+  let groupStopped = true;
+  try {
+    if (runner && !runnerError) {
+      signalGroup('SIGTERM');
+      for (let i = 0; i < 50 && groupAlive(); i++) await delay(100);
+      if (groupAlive()) { signalGroup('SIGKILL'); for (let i = 0; i < 50 && groupAlive(); i++) await delay(100); }
+      if (groupAlive()) throw new Error('Owned process group still alive; retaining MySQL for recovery');
+    }
+  } catch (e) { cleanupErrors.push(e); groupStopped = false; }
+  if (groupStopped) {
+    try { if (server) await new Promise((resolve) => server.close(resolve)); } catch (e) { cleanupErrors.push(e); }
+    try { if (mysql) await mysql.stop(); } catch (e) { cleanupErrors.push(e); }
+    try { if (work) fs.rmSync(work, { recursive: true, force: true }); } catch (e) { cleanupErrors.push(e); }
   }
-  if (server) await new Promise((resolve) => server.close(resolve));
-  if (mysql) await mysql.stop();
-  if (work) fs.rmSync(work, { recursive: true, force: true });
+  if (cleanupErrors.length) { process.exitCode = 1; for (const e of cleanupErrors) console.error(e); }
+  if (runDir) {
+    try {
+      const file = path.join(runDir, 'case-summary.json');
+      const summary = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : { runId: path.basename(runDir), verdict: 'unconfirmed', cleanup: 'unconfirmed' };
+      summary.runnerStatus = runnerStatus === undefined ? 'unconfirmed' : runnerStatus === 0 ? 'passed' : 'failed';
+      summary.environmentCleanup = cleanupErrors.length ? 'failed' : 'completed';
+      summary.environmentCleanupErrors = cleanupErrors.map((e) => e.message);
+      const partial = `${file}.partial`;
+      fs.writeFileSync(partial, JSON.stringify(summary, null, 2), { mode: 0o600 });
+      fs.renameSync(partial, file);
+      console.log(`Batch summary: ${file}`);
+    } catch (e) { console.error('Unable to save batch summary:', e.message); process.exitCode = 1; }
+  }
 });

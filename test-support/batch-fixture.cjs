@@ -1,6 +1,8 @@
 'use strict';
 const { test: base } = require('@playwright/test');
 const fs = require('node:fs/promises');
+const path = require('node:path');
+const { createHash } = require('node:crypto');
 const test = base.extend({
   batchState: [async ({}, use, info) => {
     const state = { evidence: { scope: 'all rows in dedicated parents and children tables', input: null, batch: null, differences: null, checks: [], cleanup: 'unconfirmed', measurement: null }, db: null, work: null, batch: null };
@@ -18,8 +20,25 @@ const test = base.extend({
     state.evidence.cleanup = errors.length ? 'failed' : 'completed';
     state.evidence.cleanupErrors = errors.map(String);
     state.evidence.batchStopped = stopped;
-    try { await info.attach('batch-evidence.json', { body: JSON.stringify(state.evidence, null, 2), contentType: 'application/json' }); }
-    catch (e) { errors.push(e); }
+    let attachmentStatus = 'saved';
+    try {
+      if (process.env.BATCH_VERIFY_ATTACH === '1') throw new Error('injected attachment failure');
+      await info.attach('batch-evidence.json', { body: JSON.stringify(state.evidence, null, 2), contentType: 'application/json' });
+    } catch (e) { attachmentStatus = 'failed'; errors.push(e); }
+    try {
+      const files = ['demo/reference-sync/sync.cjs', 'tests/targets/demo-reference/target.cjs', 'tests/scenarios/batch/full-import.integration.spec.cjs', 'test-support/http-snapshot.cjs', 'test-support/batch-fixture.cjs', 'test-support/local-mysql.cjs', 'scripts/local-batch.cjs', 'mocks/reference-source/server.cjs'];
+      const codeHashes = {};
+      for (const file of files) codeHashes[file] = createHash('sha256').update(await fs.readFile(file)).digest('hex');
+      const e = state.evidence;
+      const businessFailures = info.errors.map((error) => {
+        const message = error.message || '';
+        return { phase: e.phase || 'setup', kind: /timeout/i.test(message) ? 'timeout' : /Batch exited/i.test(message) ? 'batch-process' : /expect\(/i.test(message) ? 'assertion' : 'scenario-error' };
+      });
+      const summary = { runId: path.basename(process.env.BATCH_RUN_DIR), codeHashes, scope: e.scope, input: e.input, batch: e.batch, differences: e.differences, checks: e.checks, verdict: e.verdict, businessFailures, cleanup: e.cleanup, cleanupErrors: e.cleanupErrors.map(() => 'cleanup-error'), attachmentStatus, batchStopped: e.batchStopped, measurement: e.measurement, environmentCleanup: 'pending', runnerStatus: 'pending' };
+      const file = path.join(process.env.BATCH_RUN_DIR, 'case-summary.json');
+      await fs.writeFile(`${file}.partial`, JSON.stringify(summary, null, 2), { mode: 0o600 });
+      await fs.rename(`${file}.partial`, file);
+    } catch (e) { errors.push(e); }
     if (errors.length) throw new AggregateError(errors, 'Batch cleanup or evidence failed');
   }, { auto: true, timeout: 60000 }],
 });

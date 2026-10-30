@@ -16,6 +16,7 @@ test('full import compares all parent and child rows and detects faults', async 
   const connection = JSON.parse(fs.readFileSync(process.env.BATCH_CONNECTION_FILE, 'utf8'));
   const db = state.db = await prepare(connection);
     // Given: capture completely, then freeze the expected rows before the batch starts.
+    evidence.phase = 'given';
     evidence.input = await captureJson(`${process.env.BATCH_SOURCE_URL}/records`, snapshotFile);
     const records = JSON.parse(await fsp.readFile(snapshotFile, 'utf8'));
     const want = expected(records);
@@ -23,12 +24,14 @@ test('full import compares all parent and child rows and detects faults', async 
       expect(want).toEqual({ parents: [{ id: '9007199254740993', destination: 'east', label: 'Alpha', note: null }, { id: '9007199254740995', destination: 'west', label: 'Beta', note: '' }], children: [{ id: '9007199254741001', parent_id: '9007199254740993', destination: 'east', value: '' }, { id: '9007199254741002', parent_id: '9007199254740995', destination: 'west', value: 'value' }] });
     }
     // When: the independent command retrieves the source and performs per-query commits.
+    evidence.phase = 'when';
     const started = Date.now();
     if (process.env.BATCH_VERIFY_TIMEOUT === '1') test.setTimeout(1000);
     state.batch = startBatch(process.env.BATCH_CONNECTION_FILE, `${process.env.BATCH_SOURCE_URL}/records`, (process.env.BATCH_VERIFY_TIMEOUT === '1' || process.env.BATCH_VERIFY_SIGNAL === '1') ? { BATCH_VERIFY_HANG: '1' } : {});
     await state.batch.completion;
     evidence.batch = { exit: 0, durationMs: Date.now() - started };
     // Then: read both tables in full, without JOIN or filtering away anomalies.
+    evidence.phase = 'then';
     const got = await snapshot(db); evidence.differences = compare(want, got);
     expect(evidence.differences).toEqual([]);
     evidence.measurement = { parentRows: got.parents.length, childRows: got.children.length, elapsedMs: Date.now() - started, runnerRssBytes: process.memoryUsage().rss, scope: 'Playwright worker RSS only; excludes sync process, server and MySQL' };
