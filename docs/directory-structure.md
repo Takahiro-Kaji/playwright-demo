@@ -109,3 +109,5 @@ UIモック異常を前提確認から復元・証跡まで小さく完成 → �
 ### 初回実装の配置（2026-10-31 JST）
 
 既存デモの `helpers/` に復元機構、`test-support/` に終了処理、`tests/verification/` に故障注入を追加した。これは提案構成の部分的な試行であり、全体移行や代表3ケースの評価完了ではない。結果は [implementation-feedback.md](implementation-feedback.md)。
+
+同期バッチでは `tests/scenarios/batch`、`tests/targets/demo-reference` と `test-support` を使い、同期プロセスを別に起動して親子2表を全件照合した。共有DBや実対象の成立は未確認。詳細は [implementation-feedback.md](implementation-feedback.md)。

@@ -32,3 +32,16 @@ Macローカルで Node.js 26.4.0、MySQL 9.2.0、Google Chrome 156.0.8078.48、
 ## 引き継いだクラウド作業の履歴
 
 先行するLinux上の初回パッチでは、単体13件と構文23ファイルが成功した。通常依存・Chrome・MySQL CLI等が利用できず、一覧9件は一時アダプターによる特殊条件であり、実E2Eは未実施だった。これらは上記のMacでの検証結果とは別の履歴である。
+
+## 毎時実装の手動実行：同期バッチ代表経路（2026-10-31 JST）
+
+04:18ごろ開始、04:31時点の作業結果。基点は `c9fe2e05ee8364ea505a353b26e15698948cf8a4`、この追加分は記録時点で未コミット。CJSのまま、目標配置の `tests/scenarios/batch`、`tests/targets/demo-reference`、`test-support`、`mocks/reference-source`、`demo/reference-sync` に、専用MySQL・合成上流・別Node同期プロセス・親子全件照合の小さな代表経路を追加した。バッチ専用Playwright設定ではブラウザーを要求しない。UI入口は既存9ケースに限定し、検証入口と分離した。
+
+- `node scripts/local-batch.cjs`：小データで上流の完全取得、固定期待、同期、両テーブルの全行照合、証跡と後処理を実行。実SQLで欠落・重複・余剰・誤所属・孤立関連・値・削除漏れ・NULL・BIGINTの差をそれぞれ注入し、期待キーと差分種別を検出。転送切断、不正JSON、同期コマンド失敗も誤PASSにしなかった。検出試験のPASSと注入された業務上のFAILは別記する。
+- `node scripts/verify-batch-failure.cjs`：実runnerで本体期限切れと業務・cleanupの同時失敗を別々に注入。元失敗と終了処理の証跡、同期子の停止、非成功終了を確認。別途SIGTERMで実行器・同期子・専用MySQLのPIDが残らず、専用MySQL一時dirを削除することを確認。Playwright共通変換cacheは残る。
+- `BATCH_SIZE=30000 node scripts/local-batch.cjs`：親15,000・子15,000行、入力2,257,781 bytes。同期5,349ms、照合まで5,437ms、Playwright workerの観測RSS 174,440,448 bytes。RSSはピーク測定ではなく、同期子・上流サーバー・MySQLを含まない。
+- `node scripts/local-e2e.cjs --grep 'a / both-unavailable' --timeout 30000`：MySQL寿命共通化後も既存の実Chrome 503ケース1件成功。`npm run test:list` は従来のUI9件のみ、`npm run test:syntax` は38ファイル成功。先行の単体19件・UI fault4条件は前節の検証結果であり、この単位での再実行結果ではない。
+
+独立レビューで、初版が終了処理を本体内に置き直しC03を再発させていた点と、中断時の子プロセス回収を指摘された。終了処理を専用fixture・60秒予算に移し、同期子を終了確認してからDBと入力を片付ける。runnerは専用プロセス群を所有して停止・回収する。強制終了や端末停止まで保証しない。
+
+上流取得のハッシュは保存スナップショットの識別であり、別プロセスの再取得と同一入力であった証明ではない。生入力は `.local` に一時保存後に削除し、JSON証跡はGit対象外の `test-results/batch-report.json` に残る。次回実行で更新・削除され得る。専用DB全体を所有するデモであり、実対向の認証・業務SQL・共有DB復旧、同期中UI、AWSは未確認。次の最小単位は同期中UIの観測と回収である。

@@ -123,3 +123,5 @@ cleanupエラーは別に追記する。たとえば「ケースFAIL（UI表示�
 ### 初回実装からの確認（2026-10-31 JST）
 
 単一モックの原子的な条件付き更新で他者の状態の上書きを防ぎ、所有不明時は復元しない。復元後の実応答と対象別証跡を残し、業務失敗と復元失敗を区別する。初回実装では業務FAILも含め最初の失敗で後続を停止する。独立した後処理時間にも強制終了時などの限界がある。実行結果と未確認範囲は [implementation-feedback.md](implementation-feedback.md) を参照。
+
+バッチ実証では本体期限切れでも同期プロセスの終了を先に回収し、独立したfixture終了処理でDB・一時入力・証跡を扱う。後処理を本体のfinallyへ戻さない。Chromeを使わない実行入口と故障注入入口を分ける。結果と限界は [implementation-feedback.md](implementation-feedback.md)。

@@ -11,7 +11,9 @@
     "report": "playwright show-report",
     "test:syntax": "node scripts/check-syntax.cjs",
     "test:local": "node scripts/local-e2e.cjs",
-    "test:verification": "node scripts/verify-runner.cjs"
+    "test:verification": "node scripts/verify-runner.cjs",
+    "test:batch:local": "node scripts/local-batch.cjs",
+    "test:batch:verification": "node scripts/verify-batch-failure.cjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.0",

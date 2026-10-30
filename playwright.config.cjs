@@ -5,6 +5,7 @@ const { defineConfig } = require('@playwright/test');
 module.exports = defineConfig({
   testDir: './tests',
   testMatch: '**/*.integration.spec.cjs',
+  testIgnore: '**/scenarios/batch/**',
   timeout: 240_000,
   expect: { timeout: 15_000 },
   workers: 1,

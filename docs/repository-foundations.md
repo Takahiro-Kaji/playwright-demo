@@ -73,3 +73,5 @@ DBの変更前退避、Given後の比較基準、復元結果は別の情報と�
 ### 初回実装の観察（2026-10-31 JST）
 
 既存CJSデモで復元の所有状態確認、後続停止、独立した後処理時間と証跡を追加し、隔離ローカル環境のUIモック異常1ケースを実証した。AWS実機と代表3ケースによる目標構成の評価は未確認。詳細は [implementation-feedback.md](implementation-feedback.md)。
+
+同期バッチの小さな合成代表経路も既存CJSで試行した。バッチ専用入口はChromeを要求せず、実対象・同期中UIは未確認である。詳細は [implementation-feedback.md](implementation-feedback.md)。
