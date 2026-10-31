@@ -34,7 +34,7 @@ const test = base.extend({
         const dir = path.resolve('.local', 'runs', id); await fs.mkdir(dir, { recursive: true, mode: 0o700 });
         const codeHashes = {};
         for (const file of state.summaryFiles) codeHashes[file] = createHash('sha256').update(await fs.readFile(file)).digest('hex');
-        const failures = info.errors.map((error) => ({ phase: state.summary.phase, kind: /Wrong user-visible message/.test(error.message || '') ? 'ui-text-mismatch' : /timeout/i.test(error.message || '') ? 'timeout' : 'scenario-error' }));
+        const failures = info.errors.map((error) => ({ phase: state.summary.phase, kind: state.failureKind || (/Wrong user-visible message/.test(error.message || '') ? 'ui-text-mismatch' : /timeout/i.test(error.message || '') ? 'timeout' : 'scenario-error') }));
         const summary = { runId: id, ...state.summary, codeHashes, verdict: info.errors.length ? 'FAIL' : 'PASS', businessFailures: failures, restoration: safeRestoration(result.evidence), cleanup: result.errors.length ? 'failed' : 'completed', attachmentStatus: attachmentError ? 'failed' : 'saved', runnerStatus: 'pending', environmentCleanup: 'pending' };
         const file = path.join(dir, 'case-summary.json');
         await fs.writeFile(`${file}.partial`, JSON.stringify(summary, null, 2), { mode: 0o600 }); await fs.rename(`${file}.partial`, file);

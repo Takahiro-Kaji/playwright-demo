@@ -23,7 +23,7 @@ test.beforeAll(async () => {
 // No serial-group dependencies: each case validates its own preconditions and restores changed settings.
 // Additional pinned runs prove both regional paths. Random samples alone cannot guarantee coverage.
 for (const route of ['random', 'a', 'b']) for (const scenario of cases) {
-  if (route === 'a' && scenario.id === 'both-unavailable') continue; // Migrated to scenarios/ui.
+  if (route === 'a' && ['both-unavailable', 'both-ok'].includes(scenario.id)) continue; // Migrated to scenarios/ui.
   test(`${route} / ${scenario.id}`, async ({ page, caseState }) => {
     const targets = regions();
     const key = `it-${randomUUID()}`;

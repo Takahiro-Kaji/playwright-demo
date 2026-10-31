@@ -29,6 +29,7 @@ async function listen(handler) {
   return `http://127.0.0.1:${server.address().port}`;
 }
 async function main() {
+  if (process.env.UI_VERIFY_DB_STATUS === '1' && !process.argv.slice(2).some((x, i, args) => x === '--grep' && args[i + 1] === 'a / both-ok')) throw new Error('DB status injection requires the fixed A success case');
   const localMysql = await startLocalMysql();
   stopMysql = localMysql.stop;
   if (interrupted) throw new Error('Interrupted');
@@ -46,7 +47,12 @@ async function main() {
     const mockUrl = await listen(mock.business);
     const adminUrl = await listen((req, res) => mock.admin(req, res).catch(() => { res.writeHead(500); res.end(); }));
     const pool = mysql.createPool({ host: '127.0.0.1', port, user: 'local_test', password: 'local_test_password', database: 'integration_demo' }); pools.push(pool);
-    const handler = createHandler({ region, mockUrl, db: () => pool });
+    const injectStatus = process.env.UI_VERIFY_DB_STATUS === '1' && key === 'A';
+    const faultDb = { execute(sql, values) {
+      if (sql !== 'INSERT INTO items (test_key, status) VALUES (?, ?)' || values[1] !== 'CREATED') throw new Error('Unexpected DB operation in status injection');
+      return pool.execute(sql, [values[0], 'INJECTED_STATUS']);
+    } };
+    const handler = createHandler({ region, mockUrl, db: () => injectStatus ? faultDb : pool });
     const appUrl = await listen((req, res) => { res.setHeader('x-routed-region', region); return handler(req, res).catch((error) => { console.error(error); res.destroy(); }); });
     Object.assign(env, { [`REGION_${key}`]: region, [`MOCK_URL_${key}`]: mockUrl, [`MOCK_ADMIN_URL_${key}`]: adminUrl, [`APP_URL_${key}`]: appUrl });
   }

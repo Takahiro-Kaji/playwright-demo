@@ -99,3 +99,16 @@ run `0f1dff65-11e4-4f65-8655-cd1aa3540c22` では、Givenの入力取得後、Wh
 今回のデモ応答に秘密ヘッダーはなかった。永続要約はprobeの必要な識別・ステータス項目だけを保存するが、従来のPlaywright attachment／traceで任意の実環境ヘッダーから秘密が除外される保証は未確認であり、実非本番への接続受入前に確認が必要。実対向・AWS、残る旧8ケースの新配置への移行、必須テーマ全体の検証は未完了。
 
 次の最小課題は固定A・`both-ok` 1件を新UI／target配置に移し、外部200・アプリ201・成功UI・DB事前0件／事後1件（UUIDキーとCREATED）を旧契約どおり回帰確認すること。旧ループから同じ1件だけを除外し、全9ケースの一意性と残り7ケースを維持する。
+
+## 毎時実装：UI正常ケースの段階移行（2026-10-31 JST）
+
+09:21ごろ開始、09:27時点の結果。基点は `10e0eed0e8bb25cc254a33bfa8384fcb7caf55d0`。固定Aの `both-ok` 1件を `tests/scenarios/ui` へ移し、既存 `tests/targets/demo-items` の画面操作・SQL・事前固定期待値と共通復元fixtureを再利用した。旧ループから同じ1組だけを除外し、旧7＋新2のroute／scenarioタイトル9件が一意で、各固定期待値が移行前と一致することを確認した。既存503ケースの契約は変えていない。
+
+- iCloud読込みの阻害を避けるため、前回作成した `/private/tmp/play-right-ui-verify` の固定依存を使い、最終版のsource・設定・lock 23ファイルが元repoとSHA-256一致することを確認した。移行前の一覧も同じ基点と一致するコピーで取得した。
+- 実Chrome・専用MySQL・2モックの正常run `60a5bd4a-da6c-43ec-abb7-b606c25a7b7a` はexit 0。外部200、アプリ201、成功文言とrole/state/live、UUID限定DB事前0件・事後1件・差分1件、キー一致・status CREATED・ID文字列、両モック復元と実probeを確認。
+- `UI_VERIFY_DB_STATUS=1 node scripts/local-e2e.cjs --grep 'a / both-ok' --timeout 30000` のrun `598b18d6-6da7-4b41-8c7a-8caf9d528ebf` は隔離local harnessのDB adapterだけで登録statusを故障値に変えた。実MySQLに1件、同じUUID、外部200・アプリ201・成功UIを保ったまま、固定期待CREATEDとの不一致を `db-status-mismatch` として検出しexit 1。両モック復元とprobe、環境cleanupは成功。これは故障検出の成功であり、意図した業務FAILをPASSにしたものではない。
+- 共通fixtureの既存4条件（前提失敗、本体timeout、復元失敗、両者同時失敗）も同じfixture版で成功。暫定run `0ef58a3e-64d6-4936-9574-b1fe268f835c`／`110cc1ef-b1ca-4061-9fa1-0ca6c2157710` は要約がDB status実値を含む修正前であり、最終証拠に使わない。
+
+最終2runの非秘密要約をGit対象外 `.local/runs/<runId>/case-summary.json` にコピーしSHA-256一致を確認した。事前期待値とUUIDの識別ハッシュ、11ソースのハッシュ、HTTP・UI・DB件数とキー／status一致真偽、モック復元、fixture・環境cleanupとrunner結果を分け、DB実値や認証情報を永続要約に含めない。作成行の回収は専用デモDBの破棄によるもので、共有DBにおける行復元を実証したものではない。
+
+既存7ケースの新配置移行、実非本番のattachment／traceの秘密除外、実対向・AWS、必須テーマ全体と配置案全体の評価は未確認。

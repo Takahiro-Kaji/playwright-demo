@@ -113,3 +113,5 @@ UIモック異常を前提確認から復元・証跡まで小さく完成 → �
 同期バッチでは `tests/scenarios/batch`、`tests/targets/demo-reference` と `test-support` を使い、同期プロセスを別に起動して親子2表を全件照合した。共有DBや実対象の成立は未確認。詳細は [implementation-feedback.md](implementation-feedback.md)。
 
 固定AのUI503ケースを `tests/scenarios/ui` と `tests/targets/demo-items` に段階移行し、旧9ケースの意味・一意性を保った。残り8ケースの移行と配置案全体の評価は未完了。詳細は [implementation-feedback.md](implementation-feedback.md)。
+
+固定AのUI正常ケースも `tests/scenarios/ui` と `tests/targets/demo-items` に段階移行した。旧7ケースと移行済み2ケースの期待・一意性は維持し、残る移行は未完了。詳細は [implementation-feedback.md](implementation-feedback.md)。
