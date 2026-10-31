@@ -114,3 +114,42 @@ run `0f1dff65-11e4-4f65-8655-cd1aa3540c22` では、Givenの入力取得後、Wh
 既存7ケースの新配置移行、実非本番のattachment／traceの秘密除外、実対向・AWS、必須テーマ全体と配置案全体の評価は未確認。
 
 次の最小課題は、隔離ローカル環境で両モックの開始状態をA=200・B=429とし、両方を503へ変更した後にUI文言の不一致を注入して、元のUI失敗を保持しながら各モックをそれぞれの開始状態へ条件付き復元し、実HTTP応答・証跡・cleanupを確認することである。これにより一律200への復元では検出できない誤りを検証する。既存9ケースの意味は変更しない。
+
+## Java / Gradle 移行中の確認（2026-10-31 JST）
+
+作業ブランチ `codex/test-foundation-handoff` の基点 `8bc7fbd6240730b314424866f85998a543601257` から、Java 17 / Gradle 8.14.2 の単一モジュールへ移行中。以下は個々の実行時点のソースハッシュで識別される途中結果であり、後続の変更を含む最終版の一括合格を意味しない。実行にはソース・設定の固定コピー `/private/tmp/play-right-java-check` を使用し、非秘密のrun別要約を `.local/runs/<runId>/case-summary.json` に回収した。既存 Gradle cache では native 初期化に失敗し、原因を特定せず別の `/private/tmp` cache で実行した。
+
+- UIの誤文言故障 `45fe5d5b-3ead-4616-8eeb-9b8b24046729` は実Chrome・専用MySQLで業務FAIL・終了1。初期mock A200/B429を503へ設定後、A200/B429へ各々条件付き復元し実probeを確認。DB事後観測は文言assert停止により未確認。後続のUIコード変更前の版。
+- DB状態故障 `476b4a22-24cd-4b90-a2c1-d554dbfde215` は専用DBのtriggerで誤値を注入し業務FAIL・終了1、両mock復元とprobe、環境回収を確認。前の試行 `bc86a4cb-9ade-42a2-b2ee-0fe860e37684` はtrigger権限不足でGiven前に停止。専用MySQLだけでbinary logを無効にして再試行した。
+- バッチ `aab23167-0ada-4dcc-82b6-3d2304c6e77f` は親15,000・子15,000行、入力1,968,929 bytes、同期3,367ms、9 SQL故障確認を含む照合まで3,761ms。観測時JVM heap 67,354,224 bytesはピークではなく同期子・MySQLを含まない。完全取得スナップショットのhashは、別プロセスが取得した入力との同一性の証明ではない。
+- cross `a5cd022e-721c-4a7c-9aee-453ff779e274` は実HTTP要求開始〜応答終了の内部に完全に収まる2 SQL観測で親数62→63、両端1ms内向余裕、同期後全行と最終UIを確認。SQLは同一端末のepochミリ秒を直接記録し、時計急変は排除できない。旧run `9e44b88b-2506-4d70-b124-af33747e6bd9` は時刻校正の不確実性が判明し成立根拠から除外。no-overlap `63cfd57c-7e5c-4fd7-8baa-1ab1ac88a05a` は未確認・終了1であり、同期後の全件比較・最終UI・環境回収は成功した。
+- 復元失敗 `fdab9935-6346-4500-946d-397da00aaf15` はGradle failFastだけで同一class内の後続が止まらない事実を踏まえ、明示ガードを追加した版で業務PASS・復元失敗・runner非成功。後続メソッドは開始前ガードで拒否されsentinel本体は動かなかった。詳細証拠と変更後の再確認は後続の結果を参照。
+
+これらのデータベースはローカルの専用破棄可能DBであり、共有DBの行復元を保証しない。実AWS・EKS・RDS・実TLS接続、実対向認証と業務SQLは未確認。ローカルのrandomは従来どおりA固定の代役であり、実ロードバランサーや `x-routed-region` は検証していない。旧JavaScriptのPASSをJavaのPASSに流用しない。
+
+### Java版の後続固定コピー検証
+
+`gradle test localUiTest` は通常13件、UIのroute/scenario 9件が成功、skip 0。UIの固定A成功は `1e656613-5ec1-4da4-a661-f83278afbd65`、固定A・503は `09fd3e36-e3c9-4f32-8d71-c594955521f7`。両件とも専用DB・実Chrome・両mockを使用し、前者はHTTP 201・表示・DB 0→1/キー/CREATED、後者はHTTP 502・外部503・表示・2秒間DB不変を確認。mockの元状態と各probe、実行元の対象ソースhashは各要約に残る。
+
+同じUIソース版の故障注入では、誤文言 `05a73676-6c40-4469-a67a-3e7b5f2c1e22` は業務FAIL・終了1でA200/B429へ各復元probe成功、DB誤status `d757dc09-6660-44bf-8d3f-8199fc91915e` は不一致を検出し終了1・両mock復元probe成功。前者は表示assertで終了しDB事後結果は未確認。復元競合 `7240ce07-8861-4d66-a9c2-2761ea027750` は競合後A429/version2を上書きせず、Bを元200へ復元。GradleのfailFastは同一JUnit classの次メソッドを防げなかったため、開始前の停止ガードを追加し、実runnerで後続sentinel本体が動かないことを確認した。ガードは単一worker内の仕組みで、別プロセス・別端末の排他ではない。
+
+実browser生成後のwatchdog期限切れ `d1e23f38-559f-4d2d-af2e-ed7b4f66ef83` は元のinterruptをcauseとして終了1、timeout FAIL、両mock復元probeと専用環境回収を記録。業務失敗と復元失敗の同時注入 `6b79a0ed-a2ff-4fa0-96e9-984ca1bcf522` は文言不一致のcauseとCAS409のsuppressed例外を保持し、後続sentinelを拒否。添付先への実filesystem書込み失敗 `226ad2e5-912a-4e3f-8374-f05f6bd1ce03` は業務PASS・復元／環境回収completed・attachment failed・runner failedを分けた。これらは意図的な業務またはrunnerの非成功である。外側の全体強制期限と、停止しない外部処理に対するcleanup時間の完全な上限は未証明。
+
+後処理に単調時計の独立60秒予算を追加し、body watchdog停止後、同一threadでbrowser／Playwright終了、mockの条件付き復元とprobe、所有MySQLの停止確認へ残時間を渡す。`cdffa846-6132-4660-9948-c1489d48845f` はbrowser起動後の本体期限切れに対し、元interrupt・非成功を維持し、browser・両mock・環境を予算内に回収。`ca5cb259-66f1-4d91-9c82-ce0fe3ed3398` は本体の誤文言に加えてcleanup予算を1msへ短縮した故障で、元causeを維持し、予算超過・browser／mock／環境回収失敗・終了1を記録した。停止確認できない専用DBのdirは自動削除せず、実行後に対象mysqldが残っていないことを確認してそのdirだけを手動回収した。非協調なOS／driverのhard hangや強制終了を完全回収する保証ではない。これらも後続のexternal adapter抽出前のソース版である。
+
+### 統合候補の確認台帳
+
+Javaの共通UI進行を `UiCaseRunner`、demo-items固有adapterを `targets/demoitems`、バッチ／cross共通の専用環境を `targets/reference` に整理した固定コピーで、通常契約20件・借用環境1件・UI9件が成功（skip 0）。UI9件後に要約へ生成キーのhashを1行追加し、その版の固定A成功 `34558be4-3a05-49a5-aebf-96e37b8ff77f` と503 `f2ca56f8-40bf-4329-b514-69a1bcafe049` を再実行し両方成功。借用環境は共通ケースの成功後に試験行と外部所有サーバーが残ることをローカル代役で確認した。C02のregion/version/instanceId不一致は実HTTP契約試験で個別に409・状態不変を確認した。
+
+最終UIソース版の故障は、復元競合 `5ef8af41-303e-4f5c-9710-b5866883b3ba`（業務PASS・復元失敗・後続sentinel本体不実行）、本体timeout `dc2d979d-7380-43f5-9580-1096a4e12060`（元interrupt・browser/mock/環境を独立予算内に回収）、cleanup予算超過 `826a64f1-c488-455a-9cf9-050de55f9d74`（業務FAILとcleanup失敗を保持、未確認の専用DB dirはプロセス終了確認後に手動回収）、誤文言 `422b6f89-f0ad-4f07-b25d-eb45cbcf4fb6`（A200/B429へ復元probe）、DB誤status `d24336bf-b4b1-429d-b410-19f11f925ad5`、業務と復元の同時失敗 `a7d5247a-17ed-4185-98be-95c88713cc0a`（元causeとCAS409 suppressed・sentinel不在）、添付失敗 `84051a95-43d2-4c81-9b7e-85cab1454885`。各runは意図した非成功であり、実行結果と復元を要約で区別する。
+
+reference helper切出し後の小バッチ `64d7750e-af90-42a9-a006-5846fc32d6d6` は全table比較と9 SQL故障のキー／種別検出を含み成功。cross `df711d74-bf0e-4da3-a213-f9410c0dadc2` は実HTTP区間内に完全包含する2 SQLで137→138を観測し、最終全行比較とUI、環境回収が成功。no-overlap `518c682e-2c1d-4897-8667-a2973bb082af` は未確認・終了1、同期後比較と最終UI・環境回収は成功した。前記3万行測定 `aab23167-0ada-4dcc-82b6-3d2304c6e77f` はhelper切出し前の別ソース版であり、数値をこの小バッチrunへ流用しない。
+
+固定コピーと作業元のsource/config/resource 61ファイルはSHA-256一致し、対象runの要約22件は作業元へコピー後にSHA-256一致と0600を確認した。`./gradlew --version` は公式SHA-256付きWrapperでGradle 8.14.2 / Temurin Java 17を起動、`./gradlew installDist` は成功。外部環境の設定・非所有closeはfakeで確認したが、実AWS、実TLS、Docker buildは未実施。共有DBに作られる試験行は旧契約どおり保持し、要約の生成キーを手掛かりに片付けが必要である。
+
+
+### 代表3ケースによる設計確認
+
+目的は設計方針を小さく検証することであり、本番品質や各パターンの網羅を完成とするものではない。UI・同期バッチ・同期中UIの代表経路を Java 17 / Gradle で通し、ケース進行、対象固有adapter、共通の所有プロセス・後処理・証跡を分ける配置が、このデモの範囲で機能することを確認した。
+
+試行で方針を具体化した点は、Gradle failFastだけに依存せず後続開始を明示的に止めること、bodyと独立したcleanup予算を設けること、同期中UIの成立を実HTTP区間内のコミット済みDB変化に限ること、共有環境のDB行と非所有資源を専用DBの破棄と区別すること。実対象の認証・AWS・実TLS、共有DBの片付け方、時刻や強制停止の限界は保留として残す。追加の網羅性を今回の完了条件にはしない。

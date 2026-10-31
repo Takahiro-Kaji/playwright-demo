@@ -14,3 +14,6 @@ test-results/
 .deploy-*.env
 *.token
 mock-curl.conf
+
+.gradle/
+build/

@@ -1,0 +1,69 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+group = 'dev.playrightdemo'
+version = '1.0.0'
+
+repositories { mavenCentral() }
+
+java {
+    toolchain { languageVersion = JavaLanguageVersion.of(17) }
+}
+
+dependencies {
+    implementation 'com.mysql:mysql-connector-j:9.2.0'
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.19.2'
+    testImplementation 'com.microsoft.playwright:playwright:1.64.0'
+    testImplementation 'org.junit.jupiter:junit-jupiter:6.1.3'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:6.1.3'
+}
+
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
+    maxParallelForks = 1
+    failFast = true
+    outputs.upToDateWhen { false }
+    outputs.cacheIf { false }
+    systemProperty 'junit.jupiter.execution.parallel.enabled', 'false'
+    systemProperty 'test.runtime.classpath', sourceSets.test.runtimeClasspath.asPath
+}
+
+application { mainClass = 'dev.playrightdemo.cli.Main' }
+
+test { useJUnitPlatform { excludeTags 'local-ui', 'local-batch', 'local-cross', 'verification', 'fake-external' } }
+tasks.register('localUiTest', Test) {
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform { includeTags 'local-ui' }
+    shouldRunAfter test
+}
+tasks.register('localBatchTest', Test) {
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform { includeTags 'local-batch' }
+}
+tasks.register('localCrossTest', Test) {
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform { includeTags 'local-cross' }
+}
+
+tasks.register('verificationTest', Test) {
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform { includeTags 'verification' }
+}
+tasks.register('externalUiTest', Test) {
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform { includeTags 'local-ui' }
+    systemProperty 'ui.profile', 'external'
+}
+
+tasks.register('fakeExternalTest', Test) {
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform { includeTags 'fake-external' }
+}

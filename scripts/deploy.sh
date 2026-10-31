@@ -18,18 +18,22 @@ source "$ROOT/.deploy-$SLOT.env"
 RDS_HOST="$(output database_host)"
 APP_REGION="$REGION"
 export APP_IMAGE MOCK_IMAGE RDS_HOST APP_REGION
+if [[ ! -x "$ROOT/build/install/play-right-demo/bin/play-right-demo" ]]; then
+  echo "Run ./gradlew installDist before deployment" >&2; exit 2
+fi
+RENDER="$ROOT/build/install/play-right-demo/bin/play-right-demo"
 kubectl --context "$CONTEXT" apply -f "$ROOT/k8s/namespace.yaml"
 if [[ "$PHASE" == "core" ]]; then
   kubectl --context "$CONTEXT" -n integration-demo get secret mock-admin >/dev/null
-  node "$ROOT/scripts/render-k8s.cjs" "$ROOT/k8s/status-mock.yaml.tpl" | kubectl --context "$CONTEXT" apply -f -
+  "$RENDER" render-k8s "$ROOT/k8s/status-mock.yaml.tpl" | kubectl --context "$CONTEXT" apply -f -
   if [[ "$SLOT" == a ]]; then
-    node "$ROOT/scripts/render-k8s.cjs" "$ROOT/k8s/db-tunnel.yaml.tpl" | kubectl --context "$CONTEXT" apply -f -
+    "$RENDER" render-k8s "$ROOT/k8s/db-tunnel.yaml.tpl" | kubectl --context "$CONTEXT" apply -f -
     kubectl --context "$CONTEXT" -n integration-demo rollout status deployment/db-tunnel --timeout=180s
   fi
   kubectl --context "$CONTEXT" -n integration-demo rollout status deployment/status-mock --timeout=180s
 else
   kubectl --context "$CONTEXT" -n integration-demo get secret app-db >/dev/null
   kubectl --context "$CONTEXT" -n integration-demo get configmap rds-ca >/dev/null
-  node "$ROOT/scripts/render-k8s.cjs" "$ROOT/k8s/demo-app.yaml.tpl" | kubectl --context "$CONTEXT" apply -f -
+  "$RENDER" render-k8s "$ROOT/k8s/demo-app.yaml.tpl" | kubectl --context "$CONTEXT" apply -f -
   kubectl --context "$CONTEXT" -n integration-demo rollout status deployment/demo-app --timeout=180s
 fi

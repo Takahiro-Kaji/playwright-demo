@@ -16,7 +16,7 @@ spec:
       containers:
         - name: tunnel
           image: ${APP_IMAGE}
-          command: ["node", "/srv/db-tunnel.cjs"]
+          command: ["java", "-cp", "/srv/lib/*", "dev.playrightdemo.demo.dbtunnel.DbTunnel"]
           imagePullPolicy: IfNotPresent
           env:
             - { name: RDS_HOST, value: "${RDS_HOST}" }

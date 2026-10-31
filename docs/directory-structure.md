@@ -1,3 +1,7 @@
+> 2026-10-31 の実装言語は Java 17 / Gradle です。本文に残る TypeScript のファイル名・API・実行設定は設計時の例で、現行の具体的な入口と配置は [README](../README.md) と `src/main/java` / `src/test/java` を参照してください。Given / When / Then / After、所有範囲、判定・復元の原則は引き続き適用します。
+
+現行配置は `src/main/java/dev/playrightdemo/` にサービス・CLI・プロセス管理、`src/test/java/dev/playrightdemo/scenarios/` にケース、`targets/demoitems` と `targets/reference` に対象固有adapter／照合、`foundation` に環境境界・後処理予算・証跡を置く単一Gradle moduleです。`UiCaseRunner` がUI9ケースの共通進行を担い、バッチ／crossはreference targetを共有して互いのケースを呼びません。Java 17・Gradle Wrapperの具体的な実行入口はREADMEを正とします。
+
 # ディレクトリ構成と責務
 
 状態：**0ベースの配置提案。以下のファイル・APIは未実装であり、現行コードの所在を示さない。** 目標構成への移行は未実施。既存CJSデモの一部改善とローカル実証は別途行った。

@@ -1,3 +1,7 @@
+> 実装は Java 17 / Gradle を採用しました。本文中のNode.js・旧未実装記述は設計当時の記録です。現在の入口、実装済み範囲と未確認事項は [README](../README.md) と [実装フィードバック](implementation-feedback.md) を参照してください。
+
+現行配置は `src/main/java/dev/playrightdemo/` にサービス・CLI・プロセス管理、`src/test/java/dev/playrightdemo/scenarios/` にケース、`targets/demoitems` と `targets/reference` に対象固有adapter／照合、`foundation` に環境境界・後処理予算・証跡を置く単一Gradle moduleです。`UiCaseRunner` がUI9ケースの共通進行を担い、バッチ／crossはreference targetを共有して互いのケースを呼びません。Java 17・Gradle Wrapperの具体的な実行入口はREADMEを正とします。
+
 # 結合試験の目的・設計方針と大量データ照合の試験計画
 
 - 状態：**試験方針の合意・設計案**（実対向・本番相当データの照合実装は未着手）
