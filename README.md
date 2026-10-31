@@ -1,242 +1,60 @@
-# 2リージョン EKS × 共通RDS MySQL × Chrome 結合試験
+# Playwright Java integration demo
 
-> **リポジトリの設計資料：** [責務と合意済み4論点](docs/repository-foundations.md) → [ディレクトリ構成](docs/directory-structure.md) → [設計・実装ルール](docs/design-and-implementation-rules.md)。配置とルールは**新設計提案であり、現行コードは未移行**。以下の現行デモの構成・手順とは区別する。
+設計方針の妥当性を代表3ケースで確かめるためのプロトタイプです。2リージョンのアプリ・ステータスモックと MySQL を対象に、UI、同期バッチ、同期中のUI参照を確認します。Java 17、Gradle Wrapper 8.14.2、Playwright Java、JUnit Jupiter を使用します。ケースは逐次実行し、自動リトライは行いません。
 
-> **全体分類（1枚）：[結合試験の分類サマリー](docs/integration-test-overview-onepage.md)**
-> 試験目的・実データ取り込みの照合設計・完成条件：**[結合試験の設計方針](docs/integration-test-strategy.md)**
-> 複数の同期バッチとUIの連携、部分失敗、データ不整合、同期中操作：**[機能横断シナリオ試験・システム整合性検証方針](docs/cross-feature-system-scenarios.md)**
->
-> **試験の実行場所:** Playwright（Google Chrome）、`kubectl`、`curl`、MySQL照会は手元PC。AWSのEKS・RDS・外部接続は検証対象。巨大GETで取得する**社内公開情報**は、Git対象外の社内PCローカル領域（例：`.local/snapshots/`）へ一時保存し、試験終了後に削除する。**マスキングやS3への保存は不要。**
+`UiEnvironment` は実行環境の境界です。`LocalUiEnvironment` と `ExternalEnvironment` は demo-items の画面・モック・DB接続に固有のadapterで、`UiCaseRunner` がUIシナリオのGiven / When / Then / Afterを構成し、`LocalUiTest` が9通りのケースを選びます。バッチとcrossは `targets/reference` の対象固有環境・全行比較を共有し、互いのケースを呼び出しません。
 
-**最終ゴール:** アプリケーションの既存テストだけでは発見しにくい、**インフラ・外部システム・実データの違いによる不具合**をAWS上の実環境相当の結合試験で発見する。ケース数やE2E網羅を増やすことより、従来未確認だったシステム間の結合に集中する。
+## ローカル実行
 
-**主な目的は次の2つ。**
+Java 17、`mysqld` / `mysql` / `mysqladmin`、Google Chrome が必要です。テストは loopback の専用一時 MySQL とデモサービスを所有し、終了時に回収します。Gradle Wrapper の配布物は公式 SHA-256 で検証します。
 
-1. **モックのレスポンスステータスによる振る舞い検証:** モックのHTTP応答（例: 200/503）を両リージョンで揃え、外から観測できるアプリ応答・必要なUI表示・DB更新結果が期待どおりか確認する。
-2. **実対向のデータを使った取り込み・外部IF検証:** 仕様書やモックが想定したデータ構造と上流の実データに違いがあっても、数万件規模の取り込みデータが**漏れず、重複せず、あるべき登録先に、正しい値で保存されるか**確認する。**処理が正常終了してもデータが未登録・誤登録ならFAIL**とする。
-
-2リージョンのランダム振分けは検証する仕様ではなく試験環境上の制約。振分け確率・方式の正しさは本試験の合否対象としない。**試験のためだけに業務アプリへヘッダー・ログ・観測プロキシを追加することは前提にしない。** 既存ログは必要時の原因調査に使用する。
-
-**現在の状態:** AWS構築ソース・モック用デモアプリ・サンプル試験はあるが、**AWSでの実機試験も、実対向データを使った大量取り込み／照合の実装も未実施**。現在のデモは検証専用レスポンスヘッダーに依存する箇所があり、この汎用ゴールに適合させることは未対応。**AWSリソースの作成・実機検証はまだ実施していない。**
-
-## 少数のケースで確認したいこと
-
-| 試験の柱 | 前提／刺激 | 必ず確認したい結果 | 実装状況 |
-| --- | --- | --- | --- |
-| モック正常応答 | 両リージョンでHTTP 200を返す | 必要なUI・アプリ応答・DB登録が仕様どおり | デモ試験あり（AWS実機未実施） |
-| モック異常応答 | 両リージョンでHTTP 503を返す | 期待したエラー表示／DBの非更新など | デモ試験あり（AWS実機未実施） |
-| 実対向のデータ実態 | 実際のIFから取得可能な代表データを使う | データ型・項目有無・NULL・コード値・変換結果が想定と合う | 未実装 |
-| 大量取り込みの整合性 | 上流データ数万件の取り込みを完了まで実行 | **正常終了だけで合格にせず、登録先とデータ内容を突合** | 未実装 |
-
-### 大量取り込みでは「正常終了」と「正しく登録された」を分けて判定する
-
-たとえば上流から30,000件取得してエラーなく終了しても、一部が未登録、重複、別のテーブルや所属先へ登録、項目の欠落や型変換誤りになっていれば不合格。逆に、仕様による除外・集約・重複排除があるなら、30,000件という生の件数一致を合格条件にはしない。
-
-**受入条件を決めるときの確認観点:**
-
-- **上流の基準データを確定:** 読み取り専用の照会、同一時点のスナップショット、取込バッチID等で、何を取り込み対象としたか識別する。取得ができない場合は完全照合を「未確認」と明示する。
-- **仕様に基づく期待結果を算出:** 上流レコードの識別子・業務キー、変換／除外／集約規則、登録先テーブル・テナント・所属先から期待結果を作る。必ずしも1対1対応とは限らない。
-- **取り込み完了を確認:** 非同期処理は処理開始やHTTP 200ではなく、対象バッチの完了／失敗を判定可能な既存の仕組みで待つ。完了を識別できない場合は観測限界を記録する。
-- **期待と実績を突き合わせる:** MySQL側の読み取り専用照会と比較し、**欠落・重複・想定外の追加・登録先相違・主要項目の不一致**を出す。件数が同じでもIDや配置先が違えばFAIL。意図した除外や異常レコードは仕様どおりの扱いか別途確認する。
-- **証跡を残す:** 対象件数、期待件数、登録件数、差分件数、差分の種別と照合キー、未確認範囲をケース単位で記録する。上流データは**社内公開情報でありマスキング不要**。手元の社内PCへ一時保存し、通常の社内端末管理に従って扱う。Gitの管理対象には含めず、試験後に削除する。API認証情報は別途保護する。
-
-**現時点では上記は採用する試験方針／受入条件の案であり、実対向接続、上流データ取得、期待データ生成、大量データ照合のコードはまだ存在しない。** 取得エンドポイント・条件・対象範囲などは既存アプリの実装から把握可能。**実対向データをローカルから取得するための認証手段**が現在の主な技術的懸念。詳細は[設計方針書](docs/integration-test-strategy.md)を参照。
-
-## 今回の前提
-
-| 項目 | 定義 |
-| --- | --- |
-| リージョン | A=`ap-northeast-1`、B=`ap-northeast-3`を例示。Terraformで変更可能 |
-| アプリ／モック | 両リージョンにそれぞれ配置。アプリは同じリージョン内のモックを呼ぶ |
-| DB | リージョンAの非公開RDS MySQL **1インスタンスを共用**。レプリカや別DBではない |
-| 振り分け | 業務HTTPリクエストごとにA/Bを独立にランダム選択。50%ずつの抽選であり、回数の均等は保証しない |
-| モック切替 | リージョンを固定した管理APIをcurlで操作。テストケースで切替する場合、**A/B両方を同じステータスにする** |
-| 前提確認 | 設定APIの値だけでなく、各モックへのGETで**実際のHTTPステータス**を確認し、A/B共通の期待値と照合 |
-| 本試験 | Chromeの登録API応答を捕捉し、事前の期待HTTPステータスと照合。応答元リージョン／実際のモックステータスも照合 |
-| **UI表示** | **期待メッセージの完全一致、実際に表示されること、成功／エラー状態・アクセシビリティの属性を検証。HTTPが正しくてもUIが違えばFAIL** |
-| DB確認 | ケース単位で「前後比較」「事後のみ」「確認なし」を選択可能。比較対象はテストキーで絞った全対象行 |
-
-**ランダム振り分けの実装場所:** 初期版は試験端末上の小さなHTTPルーター。2本の `kubectl port-forward` を通じて、AWS上の実アプリへ転送する。**AWS上のグローバルロードバランサーを構築したという意味ではない。** DNSキャッシュ等でリクエスト単位のランダム性が曖昧にならないようにした検証用構成。自動リトライ・別リージョンへのフェイルオーバーは行わず、エラーを隠さない。
-
-```text
-ローカル端末: Google Chrome + Playwright + kubectl + curl + mysql
-  Browser → localhost:18080（リクエストごとのランダム入口）
-              ├→ localhost:18081 → EKS A / demo-app → status-mock A
-              └→ localhost:18082 → EKS B / demo-app → status-mock B
-                                   │                    │
-  EKS A / demo-app ──────────────── 共通 RDS MySQL（A） ←─ EKS B / demo-app
-                                               ↑       （リージョン間VPC Peering）
-  mysql CLI → localhost:13306 → Aの一時DB中継Pod ─┘
-
-  curl → localhost:19181 → モックA管理API（認証必須）
-  curl → localhost:19182 → モックB管理API（認証必須）
-  前提GET → localhost:19081 / 19082 → 各モックの業務応答
+```sh
+./gradlew test                 # 通常の契約テスト。AWSを使わない
+./gradlew localUiTest          # 3ルート × 3シナリオ
+./gradlew localBatchTest       # 完全取得・独立同期・全行比較・SQL故障
+./gradlew localCrossTest       # 実HTTP区間内の同期中UI観測
+./gradlew fakeExternalTest     # 借用環境での共通ケースと非所有close
+BATCH_SIZE=30000 ./gradlew localBatchTest --tests '*captureSyncAndCompareWholeTables'
 ```
 
-モックの業務レスポンス本文は空。ステータスと診断用ヘッダーだけを返す。管理APIだけは設定情報をJSONで返す。アプリに `mockStatus` を渡して応答を選ぶ旧方式は廃止した。
+UIの `random` はローカルでは固定Aへの代役です。実ロードバランサーはローカル試験の範囲外です。`localCrossTest` は実HTTP要求開始〜応答終了の内側で2回のSQL観測にコミット済み件数の差がある場合だけ成立し、根拠がなければ未確認・非成功となります。同一端末のepochミリ秒を使い、両端に1msの内向き余裕を置きます。時計の急変は排除できません。
 
-## ケースの定義と実行順序
+## 故障確認
 
-[`tests/cases.cjs`](tests/cases.cjs) で前提と期待値を宣言する。期待値は**リクエスト前に固定**し、実際の応答から後付けしない。
+次はいずれも意図的に失敗させ、コマンドが非ゼロで終了する確認です。環境変数は指定した1回の実行にのみ適用してください。
 
-| ケース | モックA／B共通の応答 | 期待アプリHTTP | 期待UI表示 | DB |
-| --- | --- | --- | --- | --- |
-| both-ok | 両方200に切替 | 201 | `作成しました`（正常表示） | 前後差分 +1、内容CREATED |
-| both-unavailable | 両方503に切替 | 502 | `外部システムエラー`（エラー表示） | 前後不変 |
-| no-switch | 切替なし。両方200が前提 | 201 | `作成しました`（正常表示） | 事後1件確認 |
-
-各ケースを `random`、`a`固定、`b`固定で実行するため、計9ケース。**両リージョンは常に同じモックステータスを期待する**ため、ランダムに振り分けられても期待HTTP・UI・DB結果は同じ。固定実行はランダムで偶然片側しか選ばれない場合に備えた経路別検証で、ランダム実行そのものを置き換えるものではない。
-
-実行順: 現在のモック設定退避 → 必要なリージョンだけcurlで切替 → **両リージョンの実応答が前提どおりか確認** → 任意のDB事前取得 → UI操作 → HTTP応答／リージョン／モック応答を照合 → **UIの表示文言・表示状態・エラー表示の役割を照合** → 任意のDB事後取得・比較 → モックが途中変更・再起動されていないことを確認 → 変更した設定を復元。
-
-- 切替なしでも前提が違えば、ケース失敗として停止する。前ケースの設定を無条件で引き継がない。
-- モックごとに `instanceId` と `version` を持ち、事前確認と本試験で一致するか確認。Pod再起動や他実行による状態変更を検出する。
-- 失敗時も `finally` で変更済み設定の復元を試みる。復元失敗も記録して失敗扱いにする。
-- 各ケースはUUIDのテストキーで分離。DB全件件数の比較で他ケースのデータと混同しない。行のIDは精度を失わないよう文字列で取得する。
-- DB不変は最初の0件だけで合格にせず、**2秒間繰り返し比較**する。無期限に変更が起きない証明ではない。非同期業務を追加する場合は完了条件・観測時間を再設計する。
-- `workers: 1`、テスト再試行なし。共有モックに対して**別端末・別CIから同時実行しない**。複数Pod化・並列化には外部の設定ストアまたはケースごとのモック隔離が必要。
-- 現在のモックは各リージョン1 Pod・Recreate更新・メモリ上の状態。再起動後は200に戻る。
-
-## ファイル
-
-`infra/` は既存のA側基盤に、B側EKS/VPC/ECRとリージョン間Peering・往復経路を追加する。RDSの3306番は両側のノード／PodサブネットCIDRだけに許可する。`services/` はアプリとモック、`k8s/` は配置テンプレート、`helpers/` はルーター・curl制御・DBスナップショット、`scripts/` は構築と試験接続の手順を実行する補助コード。
-
-## 構築手順（実行すると課金）
-
-前提: AWS CLI v2、Terraform >=1.6、Docker（linux/amd64）、kubectl、curl、Node.js >=22、npm、MySQL 8系CLI、インストール済みGoogle Chrome。AWS認証には自分の検証用アカウントのプロファイル／SSOを使用する。権限はIAM、EKS、EC2/VPC/Peering、RDS、ECR、Secrets Manager等が必要。AWS権限・対応バージョンは実行環境で検証する。
-
-**2 EKSクラスタ・4 EC2ノード・2 NAT Gateway・1 RDSなどの料金が発生する。** 非本番専用。データ転送料も確認する。これは高可用性構成ではなく、共通DBはAリージョンへの依存・単一障害点となる。
-
-### 1. 設定・計画
-
-```bash
-aws sts get-caller-identity
-cp infra/terraform.tfvars.example infra/terraform.tfvars
-# operator_cidrを実際のグローバルIPv4/32へ変更。
-# 非重複のIPv4 /16を2つ指定。例は10.42.0.0/16と10.43.0.0/16。
-aws eks describe-cluster-versions --region ap-northeast-1
-aws eks describe-cluster-versions --region ap-northeast-3
-# 両リージョンでstandard supportのeks_versionをterraform.tfvarsに設定。
-# バージョンは自動選択しない。以前の仮値1.37は既定値から削除した。
-terraform -chdir=infra init
-terraform -chdir=infra fmt -recursive
-terraform -chdir=infra validate
-terraform -chdir=infra plan -out=plan.out
-# 作成対象・費用・削除設定を確認してから実行
-terraform -chdir=infra apply plan.out
-bash scripts/configure-kubectl.sh
+```sh
+UI_VERIFY_WRONG_FEEDBACK=1 ./gradlew localUiTest --tests '*fixedA_externalError'
+UI_VERIFY_DB_STATUS=1 ./gradlew localUiTest --tests '*fixedA_success'
+UI_VERIFY_TIMEOUT=1 ./gradlew localUiTest --tests '*fixedA_externalError'
+UI_VERIFY_RESTORE_FAIL=1 ./gradlew verificationTest
+UI_VERIFY_WRONG_FEEDBACK=1 UI_VERIFY_RESTORE_FAIL=1 ./gradlew verificationTest
+UI_VERIFY_ATTACH=1 ./gradlew localUiTest --tests '*fixedA_success'
+UI_VERIFY_WRONG_FEEDBACK=1 UI_VERIFY_CLEANUP_TIMEOUT=1 ./gradlew localUiTest --tests '*fixedA_externalError'
+CROSS_VERIFY_NO_OVERLAP=1 ./gradlew localCrossTest
 ```
 
-既存環境がある場合もplanの差分を確認する。stateはGitへ保存しない。チーム利用では暗号化・ロック付きリモートstateを設計する。EKS APIは操作端末のCIDRに制限し、アプリ・モック・RDSは外部公開しない。
+cleanup予算超過では、停止確認できない専用MySQLのディレクトリを回収用に保持します。対象プロセスの終了を確認してから回収してください。各実行の非秘密要約は `.local/runs/<runId>/case-summary.json` に所有者のみ読書き可能な権限で保存します。具体的な結果、ソース／入力hash、復元の状態と未確認範囲は [実装フィードバック](docs/implementation-feedback.md) を参照してください。
 
-### 2. 両リージョンにイメージとモックを配置
+## 明示的な外部環境
 
-```bash
-bash scripts/build-push.sh            # 両ECRへビルド・push
-node scripts/configure-mocks.cjs      # 両namespace・管理用Secretを用意
-bash scripts/deploy.sh core           # 両モック、AだけDB中継Pod
+`.env.example` を参考に `.env` または環境変数で非本番のリージョン、Kubernetes context、namespace、各転送先、DB、プライベートなモック・MySQL設定ファイルを指定します。環境変数が `.env` に優先します。管理口とMySQLはloopback転送を使い、MySQLはCA検証と読取専用資格情報を使用します。両リージョンのdeployment readinessを確認後、同じUIケースを実行します。
+
+```sh
+./gradlew externalUiTest
 ```
 
-管理トークンは `~/.config/play-right-demo/mock-admin.token`、curl認証設定は同ディレクトリの `mock-curl.conf` に0600で保存する。Git・コマンド引数・試験証跡にトークンを入れない。管理ポートはClusterIPとローカルport-forwardのみで扱い、インターネットへ公開しない。
+外部のアプリ・DB・ポート転送はテストの所有物ではなく停止・破棄しません。成功ケースはSUTを通して生成したUUIDキーの行を残し、要約に識別キーと要片付けを記録します。直接の共有DB変更や全量同期を行う場合は、別途その範囲と復旧を設計してください。実AWS/EKS/RDS、実TLS接続、実業務データは今回未確認です。
 
-### 3. 共通DB初期化と両アプリ配置
+## 運用コマンド
 
-```bash
-mkdir -p "$HOME/.config/play-right-demo"
-curl -fL https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem \
-  -o "$HOME/.config/play-right-demo/global-bundle.pem"
-export RDS_CA_FILE="$HOME/.config/play-right-demo/global-bundle.pem"
-node scripts/bootstrap-db.cjs
-bash scripts/deploy.sh app
+`./gradlew installDist` 後、`build/install/play-right-demo/bin/play-right-demo` に次の入口があります。AWS環境の構築・変更は別途必要な設定と権限を確認して実行してください。
+
+```sh
+build/install/play-right-demo/bin/play-right-demo configure-mocks
+build/install/play-right-demo/bin/play-right-demo bootstrap-db
+build/install/play-right-demo/bin/play-right-demo port-forward
+build/install/play-right-demo/bin/play-right-demo render-k8s k8s/status-mock.yaml.tpl
 ```
 
-DBは一度だけ初期化し、同じDB接続用Secret／CAを両EKSへ登録する。アプリはINSERT/SELECTユーザー、検証はSELECT専用ユーザーを使う。マスター認証はSecrets Managerから取得する。RDSは非公開・TLS利用。ローカルDBトンネルは `VERIFY_CA`（localhostがRDSの証明書名と一致しないため）であり、ホスト名検証まで行う `VERIFY_IDENTITY` と同等ではない。アクセスするAWSアカウントとkubectlコンテキストも確認する。
-
-再初期化はDBパスワードを変更する。既に動いている**両リージョンのアプリPod**をその後明示的に再起動し、Readyを確認する。途中失敗した場合は両SecretとDBを再同期してから試験する。
-
-```bash
-# 初期化を再実行した場合だけ。実際のcluster_nameに合わせる。
-kubectl --context play-right-demo-eks -n integration-demo rollout restart deployment/demo-app
-kubectl --context play-right-demo-b-eks -n integration-demo rollout restart deployment/demo-app
-```
-
-### 4. 接続と試験
-
-```bash
-npm install
-bash scripts/configure-test-env.sh # 旧.envは退避してから。上書きしない。
-npm run test:unit
-npm run test:syntax
-npm run test:list                # 9ケースを確認
-```
-
-ターミナルA:
-
-```bash
-node scripts/port-forward.cjs   # 7本の転送とローカルランダムルーター。Ctrl+Cで終了。
-```
-
-ターミナルB:
-
-```bash
-npm run test:integration
-npm run report
-# 特定ケースだけ:
-npm run test:integration -- --grep 'random / both-unavailable'
-```
-
-Playwrightは `channel: 'chrome'` のみを使う。各ケースの `case-evidence.json` に期待値、モック前提、HTTPステータス／応答元、**期待UIと実際の表示**、DB前後、復元結果を残す。スクリーンショット／トレースは失敗時保存。ダミーデータのみ使用し、証跡を公開しない。
-
-## curlでモックの応答を切り替える
-
-前項のport-forwardが起動中であること。**両リージョンを同じ503にする例（テストケースの前提に合わせる）:**
-
-```bash
-curl --disable --config "$HOME/.config/play-right-demo/mock-curl.conf" \
-  --silent --show-error --fail-with-body --request PUT \
-  --header 'Content-Type: application/json' \
-  --data '{"status":503}' http://127.0.0.1:19181/admin/status
-curl --disable --config "$HOME/.config/play-right-demo/mock-curl.conf" \
-  --silent --show-error --fail-with-body --request PUT \
-  --header 'Content-Type: application/json' \
-  --data '{"status":503}' http://127.0.0.1:19182/admin/status
-
-# 管理設定を読む
-curl --disable --config "$HOME/.config/play-right-demo/mock-curl.conf" \
-  --silent --show-error --fail-with-body http://127.0.0.1:19181/admin/status
-
-# 実際の業務HTTPステータスを確認（503自体が期待結果なので--failは付けない）
-curl --silent --show-error --output /dev/null --write-out '%{http_code}\n' \
-  http://127.0.0.1:19081/status
-```
-
-Bの管理は `19182`、業務応答は `19082`。元に戻すには**両方の管理ポート**に `{"status":200}` をPUTする。管理APIのHTTP 200は「設定操作の成功」であり、業務の応答ステータス503とは別。200〜599の整数を設定可能。業務API `/status?code=...` からの応答上書きは禁止。
-
-## 検証状況と残作業
-
-前回の構成でローカル単体テスト7件とJavaScript／Shell構文検査を実施。今回の変更でUI表示の単体テストを追加し、正常・異常・通信エラーの表示を確認できるようにした。2つの実HTTPアプリ・2つのモック・実curl・ローカルルーターの連携を検証したが、DBは単体試験用アダプターでありRDSではない。MySQL CLI組立ては模擬コマンドで検証。
-
-**Terraform validate/plan、コンテナビルド、Chromeでの9ケース実行、リージョン間通信、AWS上の実MySQL照合は未実施。** 現在の作業環境にはTerraform／Chrome等がなく、外部配布サーバーへの接続もできなかった。ソースのローカル試験とAWS実機試験を混同しない。
-
-次の受入条件は、両EKSのReady、B→共通RDSの接続、curl切替／復元、9ケースのPASSと証跡（HTTP・UI・DB）、削除完了。ランダム試験での応答回数が必ず半々になることは受入条件にしない。
-
-## 削除
-
-試験接続をCtrl+Cで停止し、専用検証環境でデータ消失が許されることを確認する。
-
-```bash
-bash scripts/remove-db-tunnel.sh
-terraform -chdir=infra plan -destroy
-terraform -chdir=infra destroy
-```
-
-両リージョンのEKS/EC2/NAT/EIP/ECRとPeering、AのRDS/Secrets Managerが残っていないか確認する。RDSは最終スナップショットなし・バックアップ保持0日というデモ設定。テストデータは自動削除しない。必要な証跡は秘密情報の扱いに注意して退避し、不要なローカル認証ファイルも削除する。
-
-## 公式資料
-
-- [VPC Peering: 往復ルート・非重複CIDR](https://docs.aws.amazon.com/vpc/latest/peering/vpc-peering-basics.html)
-- [リージョン間では相手SGを参照できないためCIDRを使う](https://docs.aws.amazon.com/vpc/latest/peering/vpc-peering-security-groups.html)
-- [Terraform: cross-region peering accepter](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/vpc_peering_connection_accepter)
-- [Playwright: 応答を捕捉してステータスを検証](https://playwright.dev/docs/network)
-- [EKS対応バージョン](https://docs.aws.amazon.com/eks/latest/userguide/kubernetes-versions.html)
-
+Terraform、デプロイ用shell、Kubernetes manifestは `infra/`、`scripts/`、`k8s/` にあります。CIはJavaの通常契約テストを実施し、AWSへのデプロイは行いません。Docker imageの構築も今回未確認です。

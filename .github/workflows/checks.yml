@@ -1,4 +1,4 @@
-name: Source checks (no AWS deployment)
+name: Java source checks (no AWS deployment)
 on:
   push:
   pull_request:
@@ -7,9 +7,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: '22' }
-      - name: JavaScript syntax
-        run: npm run test:syntax
-      - name: Local unit tests (no network / AWS account)
-        run: npm run test:unit
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Java unit and service contract tests
+        run: ./gradlew test

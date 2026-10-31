@@ -1,0 +1,4 @@
+[
+  {"id":"9007199254740993","destination":"east","label":"Alpha","note":null,"children":[{"id":"9007199254741001","destination":"east","value":""}]},
+  {"id":"9007199254740995","destination":"west","label":"Beta","note":"","children":[{"id":"9007199254741002","destination":"west","value":"value"}]}
+]

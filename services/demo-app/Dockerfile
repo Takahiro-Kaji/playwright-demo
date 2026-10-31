@@ -1,8 +1,11 @@
-FROM node:22-alpine
+FROM eclipse-temurin:17-jdk AS build
+WORKDIR /src
+COPY . .
+RUN ./gradlew --no-daemon installDist
+
+FROM eclipse-temurin:17-jre
 WORKDIR /srv
-COPY package*.json ./
-RUN npm install --omit=dev --no-audit --no-fund
-COPY server.cjs db-tunnel.cjs ./
-USER node
+COPY --from=build /src/build/install/play-right-demo/lib ./lib
+USER 10001:10001
 EXPOSE 8080
-CMD ["node", "server.cjs"]
+CMD ["java", "-cp", "/srv/lib/*", "dev.playrightdemo.demo.app.DemoApp"]
