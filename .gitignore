@@ -14,3 +14,10 @@ test-results/
 .deploy-*.env
 *.token
 mock-curl.conf
+
+# Authentication state / dedicated browser profiles (never commit)
+playwright/.auth/
+.auth/
+.chrome-profile/
+storage-state*.json
+storageState*.json
