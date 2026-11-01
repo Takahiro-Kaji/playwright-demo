@@ -16,3 +16,10 @@ test-results/
 mock-curl.conf
 
 /java/target/
+
+# AWS state may contain secrets
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example

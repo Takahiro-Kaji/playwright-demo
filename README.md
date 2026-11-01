@@ -69,3 +69,7 @@ npm run real-app:test
 ### Java 版
 
 同じローカル販売管理デモを Playwright Java・JUnit・SQLite JDBC で学習できます。導入とケース別コマンドは [Java 版 README](java/README.md) を参照してください。TypeScript 版も引き続き利用できます。実 SSO と AWS は未検証です。
+
+### AWS構成について
+
+`old/aws-demo/` は旧デモの保管庫であり、今後のデプロイ・テスト対象には使用しません。現行の販売管理デモ向けAWS構成は [aws/README.md](aws/README.md) に実装中です。AWSへのデプロイと実SSOは未検証です。
