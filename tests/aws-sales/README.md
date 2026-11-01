@@ -28,7 +28,9 @@ aws-sales/
 ├── database/                         専用DBの管理・観測・排他
 │   ├── database.ts / mysql-tunnel.ts
 │   └── rows.ts / test-lock.ts
-├── batch/                            Job実行・停止と結果の判定
+├── batch/                            Lambda同期呼び出しと結果の判定
+│   └── runner.ts / result.ts
+├── old/batch/                        既存EKS Job実装（現行シナリオから参照）
 │   └── runner.ts / result.ts
 └── upstream/                         上流データ・モック操作と固定fixture
     └── catalog.ts / fixtures.ts
@@ -44,7 +46,8 @@ aws-sales/
 - `TargetVerifier`（`environment/target-verifier.ts`）：UIはDNS/ALB/Ingress/Service/PodからDBまで、バッチはnamespace/bridge/Secret/CronJob/DBまで、実際の接続先を照合する。
 - `Cluster` / `Workloads`（`environment/cluster.ts` / `workloads.ts`）：前者はAWS・kubectl実行とリソースの所有確認・作成・削除、後者はDeployment/Podの準備完了とコンテナ設定を確認する。
 - `SalesDatabase`（`database/database.ts`）：bridge経由の接続、DB所有確認、専用スキーマ・ユーザーの作成/削除、データ初期化を担当する。全件読取り・照合は `rows.ts`、接続単位の協調ロックは `test-lock.ts` に置く。
-- `BatchRunner`（`batch/runner.ts`）：Jobの開始から終了証拠の取得・停止確認までを扱う。取得した証拠の解釈は `batch/result.ts` にまとめる。
+- `BatchRunner`（`batch/runner.ts`）：Lambdaを同期呼び出しし、`BatchResult`（`batch/result.ts`）で実行結果を確認する。
+- 旧 `BatchRunner`（`old/batch/runner.ts`）：EKS Jobの開始・終了証拠の取得・停止確認を扱う。現行の `Environment` と業務7ケースはこちらを使う。
 - `UpstreamCatalog`（`upstream/catalog.ts`）：固定fixtureとmock状態の切替、実際のHTTP応答の照合を担当する。
 - `HarnessSession`（`support/harness-session.ts`）：1ケースの対象確認・ロック取得・初期化・復元・解放・結果記録を担当する。`support/harness.ts` はこれをPlaywrightのfixtureへ接続し、UI専用fixtureだけがブラウザーと保存認証を要求する。
 - `AwsReporter`（`support/reporter.ts`）：business / After / 実行状態を集約し、未実施や未確認を全件PASSにしない。
@@ -56,6 +59,35 @@ aws-sales/
 分割の境界は、DBスキーマ作成、接続先照合、Job実行と停止など、独立してレビューできる責務とする。SQL一文やassert一つごとには分けない。`prepare()` / `restore()` は順序と安全条件、`BatchRunner.run()` は開始・判定・停止までを一続きで読める形を保つ。`Environment` に全操作の転送メソッドを残さず、ケースからは `h.env.upstream.useFixture(...)` や `h.env.batches.run(...)` と担当を明示する。
 
 npmの実行コマンドと直下のconfig・CLIのパスは従来どおり。内部モジュールを直接利用するコードは上記配置を参照する。回帰検証は `tests/verification/aws-sales/`、kind/MySQL接続用の検証アダプターは `aws/tests/` に置く。
+
+## Lambda同期バッチの新クラス
+
+`batch/runner.ts` はAWS CLIの `lambda invoke --invocation-type RequestResponse` で、構築済みのLambdaを同期呼び出しする。AWS CLIと対象関数への `lambda:InvokeFunction` 権限が必要。関数名（必要ならalias付き）、リージョン、profileを明示する。
+
+```ts
+import { BatchRunner } from "./batch/runner.ts";
+
+const batches = new BatchRunner({
+  functionName: "sales-sync:test",
+  region: "ap-northeast-1",
+  profile: "sales-test",
+});
+
+const result = await batches.run({ fixture: "f1" });
+result.requireComplete();
+// result.payloadの業務結果と、DBの更新内容をここで照合する。
+
+// 異常系では、対象Lambdaが実際に返すerrorTypeを指定する。
+// const result = await batches.run({ fixture: "unavailable" });
+// result.requireExpectedError("UpstreamUnavailable");
+// その後、DBが変わっていないことを確認する。
+```
+
+入力・戻り値はJSONを前提とする。APIの `StatusCode: 200` に加え、`FunctionError` で関数の成功・失敗を確認する。`requireComplete()` は関数が例外終了していないことの確認であり、戻り値内の `statusCode: 500` などは呼び出し側で検証する。異常系は任意の失敗を受け入れず、`requireExpectedError()` で期待した `errorType` まで照合する。`UpstreamUnavailable` は使用例であり、既存runtimeにこの例外があるという意味ではない。
+
+API呼び出し失敗やJSON不正は例外になる。接続の時間切れはLambdaの停止を意味しないため、このクラスには `stopAll()` を設けていない。CLIの読取待機は910秒、プロセスの待機は930秒とし、長い同期実行にも対応する。要求・応答ファイルは一時ディレクトリに置き、呼び出し後に削除する。
+
+旧実装は `old/batch/` に保存した。既存のEKS環境と業務7ケースは旧実装を継続利用する。Lambdaハンドラーの作成・デプロイ、DB・上流への接続設定、既存シナリオのLambdaへの接続切替は今回のクラス追加に含まない。新クラスの単体検証は `node --test tests/verification/aws-sales/lambda-batch.test.ts`。
 
 ## 外部設定と権限
 
@@ -137,6 +169,12 @@ UIケースは認証とURL/ALBを含む対象確認を行い、バッチケー�
 
 `npm run aws-sales:manage -- summary JOURNAL` でも秘密を除いたケース結果を確認できる。`support/reporter.ts` の `.local/aws-sales-evidence/*.json` は選択範囲、ケース判定、After判定を別々に記録する。7件すべてpassedかつAfter confirmedのときだけ `allSevenPassed=true`。個別実行や未確認は全7件PASSにならない。journalには実行ID、所有UID、状態、ケース結果、数値時系列だけを保持し、生レスポンス・DB全件・Cookieを出さない。journal自身は専用DBパスワード等を含むのでmode600の秘密ファイルとして扱う。
 
+アプリPodのログはAWS・local共通で、各ケースの終了時（成功・失敗・準備失敗を含む）、復元処理の前に取得する。保存先は `.local/aws-sales-evidence/<runId>/app-logs/<ケースID>-<UUID>/<Pod名>.log`。ケース開始以降の標準出力・標準エラーにタイムスタンプを付け、各コンテナの末尾10,000行・最大1MiBに制限する。再起動があれば直前のコンテナのログも `<Pod名>.previous.log` に保存する。Ready状態は要求せず、Deployment→ReplicaSet→Podの所有関係を確認する。削除済みPodや過去すべての再起動ログの回収は保証しない。アプリが出力していないリクエスト情報などは追加しない。
+
+保存先はコンソールとjournalの `results[].appLogs.files` に記録する。保存したログは `testInfo.attach()` でPlaywrightの各ケースの実行結果にも添付する。HTMLレポートで確認する場合は `npm run aws-sales:test -- --reporter=./tests/aws-sales/support/reporter.ts,html` で実行し、`npx playwright show-report` で開く（localの場合は `aws-sales:local`）。既定のカスタムreporterだけではHTMLレポートを生成しない。Playwrightが添付ファイルを `test-results/` にコピーし、HTMLレポートにも収録する。
+
+取得・添付失敗は `appLogs.status=failed` と `APP_LOG_COLLECTION_FAILED` で記録し、復元・後片付けと業務判定は継続する（一部成功時は保存できたパスを残す）。ログ本文はjournalやコンソールには出さない。元のログファイルはmode600、保存ディレクトリはmode700で作成し、Git管理外の `.local/` に保持する。最終cleanupでPod・名前空間を削除した後もログは残る。Playwrightの結果・レポートもGit管理外だが、次回実行で更新され得る。ログにはアプリが出力する機密情報が含まれ得るため、レポートを含め共有前に内容を確認する。
+
 AWS・localとも実行順は UI-01、UI-02、BATCH-01、BATCH-02、CROSS-01、CROSS-02、CROSS-03。CROSS-01が未確認の場合は業務判定をunconfirmedと記録し、Playwright上はskipとしてAfterを実行する。After成功時のみ後続を実行し、未確認を含む選択実行全体はreporterが非ゼロにする。業務失敗やAfter失敗は `maxFailures=1` で後続を停止する。証拠JSONの `execution` はreporterの最終判定前のPlaywright実行状態であり、選択範囲の成否は `selectedPassed` を参照する。
 
 Afterが失敗するとjournalがblockedになり、その後の試験は初期化前に拒否される。元のbusiness verdictとAfter failed、個別エラーコードを保持する。復元処理は失敗した箇所以外も試み、Job停止不明ならDBをresetしない。
@@ -173,7 +211,7 @@ AWS構築後に初めて確認する項目は、ECR pull/IAM、RDS実CAとTLS、
 
 ## Job異常終了の確認範囲
 
-削除前に所有Job/Pod/バッチコンテナの終了証拠を取得し、`journal.batches` にoutcome・exitCode・reason・signal・開始/終了確認・固定マーカーの有無・停止結果を残す。正常、期待するアプリ異常、想定外終了、OOM/シグナル、起動不可、期限超過、終了証拠不明を区別する。状態取得やログ確認に失敗してもJob削除とPod不在確認は試みる。ログは最大2KB/8行から既存の `SALES_START_OR_SYNC_FAILED` の有無だけを読み、全文は保存・表示しない。
+旧実装（`old/batch/`）では、削除前に所有Job/Pod/バッチコンテナの終了証拠を取得し、`journal.batches` にoutcome・exitCode・reason・signal・開始/終了確認・固定マーカーの有無・停止結果を残す。正常、期待するアプリ異常、想定外終了、OOM/シグナル、起動不可、期限超過、終了証拠不明を区別する。状態取得やログ確認に失敗してもJob削除とPod不在確認は試みる。ログは最大2KB/8行から既存の `SALES_START_OR_SYNC_FAILED` の有無だけを読み、全文は保存・表示しない。
 
 BATCH-02は `requireExpectedBatchError()` を通過した異常終了と、前後の実モック503・DB不変を確認する。このマーカーはruntimeの共通catchのため、内部通信を厳密に追跡して503だけが原因だったことを証明するものではない。所有・command・実行/終了証拠と事前正常同期を組み合わせた観測範囲で判定し、終了コード違い、OOM、強制終了、起動失敗、証拠不明をPASSにしない。業務アプリに試験専用の識別処理は追加していない。
 

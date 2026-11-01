@@ -6,7 +6,7 @@ import { Workloads } from "./workloads.ts";
 import { TargetVerifier } from "./target-verifier.ts";
 import { SalesDatabase } from "../database/database.ts";
 import { compareMysql } from "../database/rows.ts";
-import { BatchRunner } from "../batch/runner.ts";
+import { BatchRunner } from "../old/batch/runner.ts";
 import { UpstreamCatalog } from "../upstream/catalog.ts";
 import { expectedFixture } from "../upstream/fixtures.ts";
 import { until } from "../support/polling.ts";

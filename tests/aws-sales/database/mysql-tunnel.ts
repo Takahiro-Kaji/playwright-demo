@@ -3,6 +3,14 @@ import { Duplex } from "node:stream";
 import mysql from "mysql2/promise";
 import { mysqlTls } from "../../../aws/sales/tls.ts";
 
+/**
+ * この処理が必要かどうかは、DBへの呼び出し・接続経路による。
+ * ここではテスト実行元から kubectl exec → Pod → RDS の経路で接続し、
+ * SQLを実行する側へmysql2のPoolを提供する。
+ * DBへ直接接続できる場合は通常のPoolに、専用コマンドでSQLを実行する場合は
+ * コマンドの起動・結果取得処理に置き換える（後者はPoolを使う呼び出し側も変更する）。
+ */
+
 // 選択したアプリPod内で実行する。シェルは使わず、認証情報をコマンドライン引数に含めない。
 // 標準出力はMySQL通信プロトコル専用。標準エラー出力はログに記録しない。
 const proxy = `const net=require('node:net');const host=process.env.DB_HOST;if(!/^[a-z0-9.-]+\\.rds\\.amazonaws\\.com$/.test(host||''))process.exit(2);const s=net.connect(3306,host);s.on('error',()=>{process.exitCode=3;process.stdin.destroy()});process.stdin.pipe(s).pipe(process.stdout);process.stdin.on('end',()=>s.end());s.on('close',()=>process.stdin.destroy());`;

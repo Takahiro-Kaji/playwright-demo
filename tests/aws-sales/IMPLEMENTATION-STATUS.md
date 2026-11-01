@@ -25,7 +25,7 @@ PR #8は取り込み済みで、今回cleanupは専用namespaceのIngress/ALB/DB
 ## レビュー指摘3件の修正と再検証
 
 - `cleanup.ts` は `cleanupStops` でアプリとJob/CronJobの停止を別々に記録する。どちらか未確認ならDB接続・復元・初期化・削除に進まず、`recovery-required` / blockedとして所有リソースを保持する。既存の失敗コードも保持する。停止原因を解消後、同じjournalで `cleanup` を再実行する。
-- `batch/result.ts` / `batch/runner.ts` は削除前にJob UID、Podの所有参照、batchコンテナの実行・終了状態を確認する。正常完了、期待異常終了、想定外失敗、timeout、未確認を区別する。BATCH-02は503実応答の前後確認、実行済み・exit 1/Error・既存の固定エラーマーカー・停止確認・DB不変を要求する。OOM、強制終了、起動失敗、状態取得失敗をPASSにしない。マーカーは通信内部の原因を一意に証明するものではない（詳細はREADME）。ログ全文は記録しない。
+- `old/batch/result.ts` / `old/batch/runner.ts` は削除前にJob UID、Podの所有参照、batchコンテナの実行・終了状態を確認する。正常完了、期待異常終了、想定外失敗、timeout、未確認を区別する。BATCH-02は503実応答の前後確認、実行済み・exit 1/Error・既存の固定エラーマーカー・停止確認・DB不変を要求する。OOM、強制終了、起動失敗、状態取得失敗をPASSにしない。マーカーは通信内部の原因を一意に証明するものではない（詳細はREADME）。ログ全文は記録しない。
 - `harness.ts` は共通 `BaseHarness` とUI専用 `uiSession` / `uiHarness` を分離する。BATCH-01/02はChrome・storageState・手動SSOなしで共通所有確認を行う。UIケースは従来の認証確認を維持する。個別バッチの事前チェックは `check-batch`。
 
 今回の検証（模擬と実物を区別）：

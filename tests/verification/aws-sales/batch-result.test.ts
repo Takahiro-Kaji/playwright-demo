@@ -1,4 +1,4 @@
-import { requireExpectedBatchError } from "../../aws-sales/batch/result.ts";
+import { requireExpectedBatchError } from "../../aws-sales/old/batch/result.ts";
 import { test } from "node:test";
 import { strict as a } from "node:assert";
 import { fixture } from "./fixtures.ts";

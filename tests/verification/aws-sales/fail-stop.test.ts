@@ -76,8 +76,12 @@ test("本文取得の期限切れと後処理失敗でも判定を保持し後�
         body === "timeout" ? "confirmed" : "failed",
       );
       if (body === "timeout")
-        a.deepEqual(result.results[0].codes, ["HTTP_RESPONSE_FINISH_TIMEOUT"]);
+        a.deepEqual(result.results[0].codes, [
+          "HTTP_RESPONSE_FINISH_TIMEOUT",
+          "APP_LOG_COLLECTION_FAILED",
+        ]);
       else a.ok(result.results[0].codes.includes("INJECTED_RESTORE_FAILURE"));
+      a.equal(result.results[0].appLogs.status, "failed");
       if (body === "1")
         a.ok(result.results[0].codes.includes("INJECTED_BODY_FAILURE"));
     }

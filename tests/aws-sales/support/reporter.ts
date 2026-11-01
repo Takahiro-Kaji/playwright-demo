@@ -43,6 +43,15 @@ export default class AwsReporter implements Reporter {
     process.stdout.write(
       `${id}: business=${verdict} after=${after} execution=${r.status} codes=${codes}\n`,
     );
+    const appLogs = t.annotations.find(
+      (a) => a.type === "app-logs",
+    )?.description;
+    if (appLogs) {
+      const logs = JSON.parse(appLogs) as { status: string; files: string[] };
+      process.stdout.write(
+        `${id}: appLogs=${logs.status} files=${logs.files.join(",")}\n`,
+      );
+    }
   }
   async onEnd(r: FullResult) {
     const cases = ids.map((id) => ({
