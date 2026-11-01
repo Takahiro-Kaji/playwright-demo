@@ -46,3 +46,15 @@ PR #8は取り込み済みで、今回cleanupは専用namespaceのIngress/ALB/DB
 - 今回の変更について実AWS（private RDS MySQL 8.4 / Cognito）での受入は未実施。上記の成功を実AWSの302・前後DB一致の確認として扱わない。
 
 PR #13レビュー対応の回帰では、子プロセスの実SIGKILL後にstale lockを解除しても再実行を拒否すること、ロック解放時のECONNRESET・分類不能エラー・接続終了失敗で復旧必要状態を保持すること、正常完了時だけpreparedへ戻ることを確認した。
+
+## #12 HTTP本文待機の修正（2026-11-01）
+
+- main `6df810b` から `fix/12-response-body-timeout` を作成し、作業中に取り込まれた#11を含む最新main `8671bdb` へrebase。
+- Playwright 1.64.1 / Google Chrome 156.0.8078.79の同じ組合せで、ローカルHTTPは本文取得成功、東京ALBの接続確認はstatus 200・画面「接続可能」にもかかわらず `finished()` と `json()` が5秒以上未完了。CDPは同一GET/同一originのresponseReceivedまで、loadingFinishedなし。Service Worker/cache経由ではなかった。
+- 診断時だけ同じfetch応答のcloneを消費するとloadingFinished/requestfinishedとPlaywright本文取得が完了。本文を読む商品APIも完了。追加のHTTPリクエストやステータスだけのPASSでは代替していない。HTTP/2を無効化しても再現する既存記録と合わせ、HTTP/2固有／Chrome内部の原因までは断定しない。
+- 接続確認の画面処理で本文を読み、`available === true` を確認。試験では本文取得に合計10秒（CROSS-01は3秒）の期限、完了通知／本文取得／JSON解析の安全な分類を追加。既存の固定期待値・画面・受注・4表照合・Afterを維持。
+- 回帰：型検査成功、AWS検証テスト35件成功、最新main統合後は#11の検証を含む64件すべて成功、既存unit/比較テスト成功。ローカルChrome統合は6成功・同期中観測1未確認（終了コード1）。追加テストは200/502/200かつavailable=false、未完了通知、本文停止、解析失敗、遅延拒否、期限切れ後のAfter confirmedとfail-stopを確認。
+- 実AWS再試験は既存 `source` をcwdにし、修正ワークツリーのPlaywright CLI/configを絶対パス指定。正本journal/configと保存認証は既存ファイルだけを使用し、所有記録を複製しない。専用イメージタグ `issue-12-response-body-20261101` を既存試験namespaceへ適用。`aws-sales:run` の自動回収は使わず、従来 `aws-sales:test` と同じconfigの7件を実行し、Afterまで確認する。
+- 東京（21:01 JST完了）：UI-01 / UI-02 / BATCH-01 / BATCH-02 / CROSS-02 / CROSS-03の6件成功。UI-01はHTTP本文・画面・受注201・UUID・DB4表全件照合を完了。CROSS-01は20回の全3,000件表示検証が正常で独立DB観測は276回。並行Jobは12秒の観測期限に達し（outcome=timeout / WaitTimeout、started=true / finished=false）、停止を確認。同じHTTP参照内の1→2は証明できず `OVERLAP_UNCONFIRMED` を維持。同期完了とThenの最終bulk2 DB照合の成功は主張しない。全7件After confirmed、journalはprepared / blocked=false。未確認を含むため正式Playwrightの終了コードは1、allSevenPassed=falseを維持。
+- 東京修正後の読み取り専用再診断でも同一Chrome、HTTP/2のままstatus 200 → CDP loadingFinished → Playwright requestfinishedを確認し、finished()・json()・直接CDP getResponseBodyのすべてが完了。本文は固定 `{available:true}` と一致。ブラウザーflag変更や別リクエストへの差し替えは行っていない。
+- 大阪（21:28 JST完了）：同じ6ケースが成功し、UI-01は本文・画面・受注201・DB4表全件照合を完了。CROSS-01は20回の全3,000件表示検証が正常、独立DB観測は172回。並行Jobは12秒の観測期限に達して停止確認済みで、同期完了・最終bulk2 DB照合は成功とせず未確認を維持。全7件After confirmed、journalはprepared / blocked=false。正式Playwrightは終了コード1。既存の23時JSTからの環境削除予定は変更していない。

@@ -138,3 +138,17 @@ BATCH-02は `requireExpectedBatchError()` を通過した異常終了と、前�
 prepare → DNS設定 → check後、同じjournalを `AWS_SSO_JOURNAL` に指定して `npm run aws-sales:sso -- --grep '未認証受注'` を実行する。`SALES_AUTH_URL` / `SALES_AUTH_SUCCESS_URL` はjournal.config.url、`SALES_AUTH_STATE` はjournal.config.stateFile、`SALES_AUTH_SUCCESS_SELECTOR` は `#refresh`、`SALES_AUTH_ENABLED=1`、`AWS_SSO_COGNITO_DOMAIN` は `userPoolDomain.auth.region.amazoncognito.com` とする。未認証受注ケース自体は保存Cookieを読み込まずHTTPを送る。全SSOケースには先に同じjournalでauthを行う。DB管理者や旧 `AWS_SSO_DB_*` の設定は不要。SSO試験はDB接続確認前にjournalを `recovery-required / blocked=true` とし、試験・復元・ロック解放・接続終了がすべて正常完了した場合だけ解除する。失敗・強制終了後は、残った排他をunlockしただけでは再実行できない。同じjournalでrecoverまたはcleanupを行う。SSO試験は環境を自動cleanupしないため、終了後は本資料のcleanupを実行する。接続先照合・TLS中継・復元範囲と中断時の手順は [SSO試験](../../aws/README.md#sso試験) を参照。
 
 回帰検証は `npm run sales:check` と `npm run aws-sales:verify`。破棄可能なローカルMySQLを使う `bash aws/tests/mysql-tls.test.sh` は、専用ユーザー/DB、TLS中継、想定外受注の削除、同期状態の差分検出、権限不足、ホスト名不一致を確認する。AWS/ALB所有照合はローカルSQL試験で模擬しており、実AWSでの302・未登録・専用行削除・前後一致の受入は別途必要。
+
+## #12 HTTP本文の取得期限
+
+接続確認もブラウザー内で `r.json()` を読み、200と `available === true` の双方を確認してから成功を表示する。以前は `r.ok` だけを読み、実ALB/Cognito + Chrome 156では未消費の本文に対するCDP `Network.loadingFinished` / Playwright `requestfinished` が来ず、試験側の本文取得が待ち続けた。同じリクエストの本文をブラウザー内で消費すると完了することを東京で切り分けた。これは観測した環境での発生条件であり、Chrome内部の一般的な不具合原因やHTTP/2固有の問題とまでは断定しない。
+
+`response-body.ts` は `finished()` と `text()` に共通の期限を適用し、その後JSONを解析する。通常は合計10秒、CROSS-01の本文取得は合計3秒。ステータス判定・固定本文比較・全画面表示・DB全件比較は維持する。対象応答は同じoriginの完全URL、HTTP method、main frameで選ぶ。
+
+- `HTTP_RESPONSE_FINISH_TIMEOUT` / `HTTP_RESPONSE_FINISH_FAILED`：応答完了通知の待機期限超過／通信失敗。
+- `HTTP_BODY_READ_TIMEOUT` / `HTTP_BODY_READ_FAILED`：本文取得の待機期限超過／取得失敗。
+- `HTTP_BODY_INVALID_JSON`：本文のJSON解析失敗。
+
+いずれも業務failedとしてAfterへ進む。本文・Cookie・認証URL・元例外の内容はコードへ含めない。期限切れ後のPromiseの拒否も処理し、受注を再送しない。画面からの応答が失われた場合もDB全件復元とJob停止の共通Afterを使う。
+
+Chrome channelとlockfileのPlaywright 1.64.1を維持し、ブラウザーflagやバージョン固定は追加していない。アプリ側の本文消費と試験側の期限で対処するため、Chromeによる学習方針は変わらない。Playwrightでは [`requestfinished` は本文ダウンロード完了時の通知](https://playwright.dev/docs/api/class-request)であり、responseイベントの200だけでは本文取得の完了を意味しない。上流の[ナビゲーションによる本文待機問題 #43508](https://github.com/microsoft/playwright/issues/43508)も確認したが、本件ではナビゲーションなしで再現しているため同一原因とは扱わない。
