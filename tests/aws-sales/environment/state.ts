@@ -60,7 +60,7 @@ export type Journal = {
     jobs: "confirmed" | "unconfirmed";
     reasons: string[];
   };
-  batches?: import("../batch/result.ts").BatchResult[];
+  batches?: import("../old/batch/result.ts").BatchResult[];
   results: CaseResult[];
 };
 export type CaseResult = {

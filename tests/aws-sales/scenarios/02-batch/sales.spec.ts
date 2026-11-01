@@ -1,6 +1,6 @@
 /** 同期バッチの正常・外部IF障害の2ケース。Chrome・保存認証は不要。 */
 import { test, business } from "../../support/fixtures.ts";
-import { requireExpectedBatchError } from "../../batch/result.ts";
+import { requireExpectedBatchError } from "../../old/batch/result.ts";
 import { snapshotMysql } from "../../database/rows.ts";
 import { batch, equal, verify } from "../../support/operations.ts";
 
