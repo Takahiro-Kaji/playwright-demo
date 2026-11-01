@@ -17,6 +17,7 @@ type CaseResult = {
   caseStatus: string;
   afterStatus: string;
   afterDetail: string;
+  observationEvidence?: string;
 };
 export default class SalesReporter implements Reporter {
   readonly runId = randomUUID();
@@ -58,6 +59,9 @@ export default class SalesReporter implements Reporter {
       caseStatus,
       afterStatus,
       afterDetail: detail,
+      observationEvidence: test.annotations.find(
+        (a) => a.type === "observation-evidence",
+      )?.description,
     });
   }
   onEnd(result: FullResult) {

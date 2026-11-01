@@ -5,12 +5,8 @@ type Row = {
   quantity: number;
   version: number;
 };
-const f1: Row[] = [
-  { productCode: "P001", name: "ペン", price: 120, quantity: 5, version: 1 },
-  { productCode: "P002", name: "ノート", price: 300, quantity: 2, version: 1 },
-];
-const f2: Row[] = [{ ...f1[0], quantity: 3, version: 2 }, f1[1]];
-/** Verify the entire observed UI and response against either fixed committed state. */
+export type DisplayExpectation = { rows: Row[]; texts: string[] };
+/** Every item must belong to one fixed version, with usable controls and no errors. */
 export function syncDisplayMatches(
   rows: unknown,
   texts: string[],
@@ -18,18 +14,16 @@ export function syncDisplayMatches(
   status: number,
   pageErrors: string[],
   failedHttp: number[],
+  expectations: DisplayExpectation[],
 ): boolean {
-  const serialized = JSON.stringify(rows);
-  const f1Match = serialized === JSON.stringify(f1),
-    f2Match = serialized === JSON.stringify(f2);
-  const expected = [
-    `ペン 120円 在庫${f1Match ? 5 : 3}受注`,
-    "ノート 300円 在庫2受注",
-  ];
+  const matching = expectations.find(
+    (e) => JSON.stringify(e.rows) === JSON.stringify(rows),
+  );
   return (
-    (f1Match || f2Match) &&
-    JSON.stringify(texts) === JSON.stringify(expected) &&
-    JSON.stringify(enabled) === JSON.stringify([true, true, true]) &&
+    Boolean(matching) &&
+    JSON.stringify(texts) === JSON.stringify(matching!.texts) &&
+    enabled.length === matching!.rows.length + 1 &&
+    enabled.every(Boolean) &&
     status === 200 &&
     pageErrors.length === 0 &&
     failedHttp.length === 0

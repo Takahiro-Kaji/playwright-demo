@@ -3,7 +3,7 @@
 ## 追加前の確認
 
 1. 学習デモか実対象か、接続先・DB・所有範囲を明示する。学習デモは `harness('upstream')` または `harness('mock')` で実行ごとの専用DBを使う。[実装](../../tests/targets/sales/harness.ts)
-2. 操作前にケースID、入力、HTTP・画面・DBの期待値、復元後の状態を決める。F1/F2は[7ケース](seven-cases.md)を参照。観測値から期待値を作らない。
+2. 操作前にケースID、入力、HTTP・画面・DBの期待値、復元後の状態を決める。F1/F2と同期中専用3,000件は[7ケース](seven-cases.md)を参照。観測値から期待値を作らない。
 3. `test.step` のGiven／When／Then／Afterを読みやすく書く。Afterは `finally` 内で実行し、失敗を握りつぶさない。復元・停止が不明なら環境を保持し後続を止める。
 4. `snapshot()` はproducts・inventory・sync_state・ordersの**全列**を同一読取りトランザクションで取得する。変更がない期待ならWhen直前とThenを比較する。`query(sql, ...args)` は対象行の観測、`execute(sql, ...args)` は許可された専用DBの準備・復元に使う。
 5. モックを変更する場合は `status()` で元値を退避し `status(503)` で設定、業務GETでも確認する。`settleAfter()` に復元と `cleanup()` を順に渡し、復元失敗後も停止を試みる。[既存例](../../tests/scenarios/ui/sales.spec.ts)

@@ -50,26 +50,26 @@
 
 ## CROSS-01：同期中のUI参照
 
-**目的**：同期によるDB更新期間中に、UIが一貫した表示を保つか確認する。[実ファイル](../../tests/scenarios/cross-feature/sales.spec.ts)／[表示判定](../../tests/targets/sales/sync-display.ts)
+**目的**：同期によるDB更新期間中のUI表示を確認する。[実ファイル](../../tests/scenarios/cross-feature/sales.spec.ts)／[固定fixture](../../tests/targets/sales/bulk-fixture.ts)／[成立判定](../../tests/targets/sales/overlap.ts)
 
-- **Given**：`harness('upstream')` → F1を `batch()` で同期 → `goto` → 学習用IFのファイルへF2を書き込む。
-- **When**：商品表示のリクエスト開始イベントから `query()` で同期versionを観測し、並行して `batch()` を起動。`waitForResponse` と表示を待ち、バッチ終了を回収する。pageerrorと500以上の応答も記録する。
-- **Then**：HTTP 200、商品2件の応答・画面全体がF1かF2のどちらかに一致。P002は「ノート 300円 在庫2」、P001は「ペン 120円 在庫5」または「ペン 120円 在庫3」。商品表示・両受注ボタンは有効、pageerror・500以上はなし。`syncDisplayMatches()` と `compareCatalog()` で表示と最終DBのF2全件を照合する。
-- **成立条件**：UIの対象HTTPリクエスト開始から応答までの観測値に、同期version 1→2を確認できた場合のみ、観測したUI結果を判定する。捕捉できなければ **未確認**。プロセスが動いていた事実は重なりの証明にならない。
-- **After**：監視timerを解除し、起動したバッチの終了を回収してから `cleanup()`。回収不明ならDBを保持する。
+- **Given**：`harness('upstream')` → `bulkCatalog(1)` の3,000件を固定生成して `writeFile()` → `batch()` で同期 → `goto()` → `bulkCatalog(2)` を上流ファイルに設定。S0001〜S3000は名称「学習商品」＋番号、価格100〜3099。旧は全在庫5・version 1、新は全在庫3・version 2。
+- **When**：独立接続の `query()` を定期実行しながら `batch()` を起動。`waitForResponse`／`click` でUIを繰り返し参照し、各リクエスト開始・応答・表示確認完了、SELECTの開始・終了とversionを記録する。試行開始とバッチ待ちの期限は12秒、UI操作timeoutは3秒、全ケースtimeoutは30秒。上限20回、観測は最大10,000件。上限内の試行をすべて記録する。
+- **Then**：各HTTP 200、全3,000件の応答・画面が旧か新のどちらかに一致し、ボタン有効・pageerror／500以上なし。`syncDisplayMatches()` で全表示、`compareCatalog()` で最終DBの新データ全件・同期version 2・受注0件を照合する。
+- **成立条件**：`hasObservedOverlap()` は、同じ正常なUI参照の開始からHTTP応答までの期間に、独立SELECTがversion 1、続いてversion 2を完全に観測した場合だけ成立とする。表示確認完了時刻にはテスト側の読取り時間も含まれるため成立判定には使わず、異なる参照間の遷移も採用しない。捕捉できなければ **未確認**。
+- **After**：観測timerを解除し、上限・全試行・観測を `.local/sales-learning-evidence/observations/` に保存。バッチの終了を回収し `cleanup()`。回収不明ならDBを保持する。
 
-呼出しの流れ：`harness` → `batch` → `goto`／`writeFile` → リクエスト観測・`query`／並行`batch` → `waitForResponse`／`syncDisplayMatches`／`compareCatalog` → バッチ回収／`cleanup`。一括結果が未確認を含む場合は非ゼロ。
+呼出し順：`harness` → `bulkCatalog`／`writeFile`／`batch` → `goto` → 独立`query`監視と`batch`／繰返し`waitForResponse`・`click` → `syncDisplayMatches`／`hasObservedOverlap`／`compareCatalog` → 証跡保存・回収・`cleanup`。業務処理に試験専用の遅延を入れない。
 
 ## CROSS-02：古い表示からの受注
 
 **目的**：表示versionと受注時のDB versionが異なる場合のデモ仕様を確認する。[実ファイル](../../tests/scenarios/cross-feature/sales.spec.ts)
 
-- **Given**：`harness` → F1同期 → `goto`／商品表示でP001 version 1を画面に保持 → 上流をF2に変更し再び `batch()`。
+- **Given**：`harness` → F1同期 → `goto`／商品表示でP001 version 1を画面に保持 → 上流をF2に変更し再び `batch()` → `snapshot()` で4表全列を固定。
 - **When**：`waitForResponse` を登録して旧画面のP001受注ボタンをクリック。
-- **Then**：HTTP 409・`STALE_VERSION`、画面「情報が更新されました。再表示してください」、受注0件、P001在庫3・version 2。
+- **Then**：HTTP 409・`STALE_VERSION`、画面「情報が更新されました。再表示してください」、受注0件、P001在庫3・version 2を含む4表全体がWhen前と一致。
 - **After**：`cleanup()` で同期・アプリ・外部IFのプロセス終了を確認し、専用DBを削除する。
 
-呼出しの流れ：`harness` → `batch` → `goto`／`click` → `writeFile`／`batch` → `waitForResponse`／`click` → `expect`／`query` → `cleanup`。409はこの学習デモ固有の固定期待値。
+呼出しの流れ：`harness` → `batch` → `goto`／`click` → `writeFile`／`batch`／`snapshot` → `waitForResponse`／`click` → `expect`／`query` → `cleanup`。409はこの学習デモ固有の固定期待値。
 
 ## CROSS-03：不整合情報での受注
 
