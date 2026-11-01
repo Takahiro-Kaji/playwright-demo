@@ -3,67 +3,106 @@ import type {
   TestCase,
   TestResult,
   FullResult,
+  FullConfig,
+  Suite,
 } from "@playwright/test/reporter";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-
+import { salesCases } from "../test-support/cases.ts";
 type CaseResult = {
+  id: string;
   title: string;
+  selected: boolean;
   caseStatus: string;
   afterStatus: string;
   afterDetail: string;
 };
 export default class SalesReporter implements Reporter {
   readonly runId = randomUUID();
-  readonly results: CaseResult[] = [];
+  selected = new Set<string>();
+  results = new Map<string, CaseResult>();
+  onBegin(_config: FullConfig, suite: Suite) {
+    mkdirSync(".local/sales-learning-evidence", { recursive: true });
+    this.selected = new Set(suite.allTests().map((t) => t.title));
+  }
   onTestEnd(test: TestCase, result: TestResult) {
+    const item = salesCases.find((c) => c.title === test.title);
+    if (!item) return;
     const detail =
       test.annotations.find((a) => a.type === "after")?.description ?? "未確認";
+    const prior = test.annotations.find(
+      (a) => a.type === "case-status",
+    )?.description;
     const afterStatus =
       detail === "停止確認・専用DB削除済み"
         ? "confirmed"
-        : detail === "要復旧・DB保持"
+        : detail === "要復旧・DB保持" ||
+            (prior !== undefined &&
+              result.status === "failed" &&
+              detail === "未確認")
           ? "failed"
           : "unknown";
-    // A failure in After can mask the business result; do not claim it passed or failed.
+    // Preserve the business verdict separately when cleanup fails.
     const caseStatus =
-      result.status === "failed" && afterStatus !== "confirmed"
+      (result.status === "skipped" && afterStatus === "unknown"
+        ? "not-run"
+        : undefined) ??
+      prior ??
+      (result.status === "failed" && afterStatus !== "confirmed"
         ? "unknown"
-        : result.status;
-    this.results.push({
-      title: test.title,
+        : result.status);
+    this.results.set(item.id, {
+      ...item,
+      selected: true,
       caseStatus,
       afterStatus,
       afterDetail: detail,
     });
   }
   onEnd(result: FullResult) {
-    const directory = join(".local/sales-learning-evidence", this.runId);
-    mkdirSync(directory, { recursive: false });
-    const incomplete = this.results.some(
-      (r) =>
-        ["skipped", "interrupted", "unknown"].includes(r.caseStatus) ||
-        r.afterStatus !== "confirmed",
+    const cases = salesCases.map(
+      (c) =>
+        this.results.get(c.id) ?? {
+          ...c,
+          selected: this.selected.has(c.title),
+          caseStatus: "not-run",
+          afterStatus: "not-run",
+          afterDetail: "未実施",
+        },
     );
-    const caseStatus = this.results.some((r) => r.caseStatus === "failed")
+    const executionScope = {
+      selectedIds: cases.filter((c) => c.selected).map((c) => c.id),
+      allSevenSelected: cases.every((c) => c.selected),
+    };
+    const caseStatus = cases.some((c) => c.caseStatus === "failed")
       ? "failed"
-      : incomplete
-        ? "incomplete"
-        : result.status;
+      : cases.every(
+            (c) => c.caseStatus === "passed" && c.afterStatus === "confirmed",
+          )
+        ? "passed"
+        : "incomplete";
+    const dir = join(".local/sales-learning-evidence", this.runId);
+    mkdirSync(dir, { recursive: false });
     writeFileSync(
-      join(directory, "summary.json"),
+      join(dir, "summary.json"),
       JSON.stringify(
-        { runId: this.runId, caseStatus, cases: this.results },
+        { runId: this.runId, executionScope, caseStatus, cases },
         null,
         2,
       ),
       { flag: "wx" },
     );
-    process.stdout.write(`安全な実行要約: ${directory}/summary.json\n`);
-    if (incomplete) return { status: "failed" as const };
-  }
-  onBegin() {
-    mkdirSync(".local/sales-learning-evidence", { recursive: true });
+    process.stdout.write(`安全な実行要約: ${dir}/summary.json\n`);
+    const selectedIncomplete = cases.some(
+      (c) =>
+        c.selected &&
+        (["skipped", "interrupted", "unknown", "not-run"].includes(
+          c.caseStatus,
+        ) ||
+          c.afterStatus !== "confirmed"),
+    );
+    if (selectedIncomplete || result.status === "failed")
+      return { status: "failed" as const };
   }
 }

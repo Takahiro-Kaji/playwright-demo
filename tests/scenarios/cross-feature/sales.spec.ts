@@ -1,6 +1,9 @@
 import { test, expect } from "@playwright/test";
 import { writeFile } from "node:fs/promises";
 import { harness } from "../../targets/sales/harness.ts";
+import { compareCatalog } from "../../targets/sales/compare.ts";
+import { DatabaseSync } from "node:sqlite";
+import { syncDisplayMatches } from "../../targets/sales/sync-display.ts";
 
 const f2 = {
   catalogVersion: 2,
@@ -26,6 +29,12 @@ test("UI during synchronization", async ({ page }, info) => {
   const h = await harness("upstream");
   let timer: ReturnType<typeof setInterval> | undefined;
   let running: Promise<number> | undefined;
+  const pageErrors: string[] = [];
+  const failedHttp: number[] = [];
+  page.on("pageerror", (e) => pageErrors.push(e.message));
+  page.on("response", (r) => {
+    if (r.status() >= 500) failedHttp.push(r.status());
+  });
   try {
     await test.step("Given: F1とF2を準備", async () => {
       expect(await h.batch()).toBe(0);
@@ -35,6 +44,7 @@ test("UI during synchronization", async ({ page }, info) => {
     const observations: { time: number; version: number }[] = [];
     let requestAt = 0,
       responseAt = 0;
+    let productsResponse: import("@playwright/test").Response;
     await test.step("When: UI参照と同期を並行し観測", async () => {
       page.on("request", (request) => {
         if (!request.url().endsWith("/api/products")) return;
@@ -55,8 +65,13 @@ test("UI during synchronization", async ({ page }, info) => {
           if (timer) clearInterval(timer);
         }
       });
+      const pending = page.waitForResponse((r) =>
+        r.url().endsWith("/api/products"),
+      );
       await page.locator("#refresh").click();
-      await expect(page.locator("#products")).toContainText("ペン");
+      productsResponse = await pending;
+      expect(productsResponse.status()).toBe(200);
+      await expect(page.locator("#products > div")).toHaveCount(2);
       expect(await running).toBe(0);
     });
     await test.step("Then: 重なりを計算し証拠を保存", async () => {
@@ -76,14 +91,94 @@ test("UI during synchronization", async ({ page }, info) => {
         }),
         contentType: "application/json",
       });
-      expect(h.query("SELECT catalog_version FROM sync_state")).toEqual([
-        { catalog_version: 2 },
-      ]);
+      const body = await productsResponse.json();
+      const f1 = [
+        {
+          productCode: "P001",
+          name: "ペン",
+          price: 120,
+          quantity: 5,
+          version: 1,
+        },
+        {
+          productCode: "P002",
+          name: "ノート",
+          price: 300,
+          quantity: 2,
+          version: 1,
+        },
+      ];
+      const updated = [{ ...f1[0], quantity: 3, version: 2 }, f1[1]];
+      expect([JSON.stringify(f1), JSON.stringify(updated)]).toContain(
+        JSON.stringify(body.products),
+      );
+      const expectedText =
+        body.products[0].quantity === 5
+          ? "ペン 120円 在庫5受注"
+          : "ペン 120円 在庫3受注";
+      await expect(page.locator("#products > div").nth(0)).toHaveText(
+        expectedText,
+      );
+      await expect(page.locator("#products > div").nth(1)).toHaveText(
+        "ノート 300円 在庫2受注",
+      );
+      await expect(
+        page.getByRole("button", { name: "商品表示" }),
+      ).toBeEnabled();
+      const orderButtons = page.getByRole("button", { name: "受注" });
+      await expect(orderButtons).toHaveCount(2);
+      await expect(orderButtons.nth(0)).toBeEnabled();
+      await expect(orderButtons.nth(1)).toBeEnabled();
+      const textValues = await page
+        .locator("#products > div")
+        .allTextContents();
+      const enabled = [
+        await page.getByRole("button", { name: "商品表示" }).isEnabled(),
+        await orderButtons.nth(0).isEnabled(),
+        await orderButtons.nth(1).isEnabled(),
+      ];
+      expect(
+        syncDisplayMatches(
+          body.products,
+          textValues,
+          enabled,
+          productsResponse.status(),
+          pageErrors,
+          failedHttp,
+        ),
+      ).toBe(true);
+      expect(pageErrors).toEqual([]);
+      expect(failedHttp).toEqual([]);
+      const db = new DatabaseSync(h.db);
+      try {
+        expect(
+          compareCatalog(db, {
+            products: f2.products.map((p, i) => ({
+              ...p,
+              version: i === 0 ? 2 : 1,
+            })),
+            deleted: [],
+            catalogVersion: 2,
+            orders: [],
+          }),
+        ).toEqual([]);
+      } finally {
+        db.close();
+      }
       test.skip(
         !established,
         "同期更新とUI参照の重なりを証明できないため未確認",
       );
     });
+    test
+      .info()
+      .annotations.push({ type: "case-status", description: "passed" });
+  } catch (error) {
+    if (test.info().expectedStatus !== "skipped")
+      test
+        .info()
+        .annotations.push({ type: "case-status", description: "failed" });
+    throw error;
   } finally {
     await test.step("After: 同期とプロセスを回収", async () => {
       if (timer) clearInterval(timer);
@@ -99,7 +194,7 @@ test("UI during synchronization", async ({ page }, info) => {
       } catch (e) {
         errors.push(e);
       }
-      expect.soft(errors.map(String), "After失敗").toEqual([]);
+      if (errors.length) throw new AggregateError(errors, "After失敗");
     });
   }
 });
@@ -136,12 +231,21 @@ test("stale version rejects order", async ({ page }) => {
         ),
       ).toEqual([{ version: 2, quantity: 3 }]);
     });
+    test
+      .info()
+      .annotations.push({ type: "case-status", description: "passed" });
+  } catch (error) {
+    if (test.info().expectedStatus !== "skipped")
+      test
+        .info()
+        .annotations.push({ type: "case-status", description: "failed" });
+    throw error;
   } finally {
     await test.step("After: プロセス回収", async () => {
       try {
         await h.cleanup();
       } catch (error) {
-        expect.soft(String(error), "After失敗").toBe("");
+        throw new Error("After失敗", { cause: error });
       }
     });
   }
@@ -150,6 +254,7 @@ test("stale version rejects order", async ({ page }) => {
 test("inconsistent relationship rejects order", async ({ page }) => {
   const h = await harness("upstream");
   let removed = false;
+  let before: ReturnType<typeof h.snapshot>;
   try {
     await test.step("Given: 在庫行を削除", async () => {
       expect(await h.batch()).toBe(0);
@@ -157,6 +262,7 @@ test("inconsistent relationship rejects order", async ({ page }) => {
       await page.locator("#refresh").click();
       h.execute("DELETE FROM inventory WHERE product_code=?", "P001");
       removed = true;
+      before = h.snapshot();
     });
     let response: import("@playwright/test").Response;
     await test.step("When: 不整合のまま受注", async () => {
@@ -172,11 +278,17 @@ test("inconsistent relationship rejects order", async ({ page }) => {
       await expect(page.locator("#result")).toHaveText(
         "商品情報に不整合があります",
       );
-      expect(h.query("SELECT * FROM orders")).toEqual([]);
-      expect(
-        h.query("SELECT * FROM inventory WHERE product_code=?", "P001"),
-      ).toEqual([]);
+      expect(h.snapshot()).toEqual(before);
     });
+    test
+      .info()
+      .annotations.push({ type: "case-status", description: "passed" });
+  } catch (error) {
+    if (test.info().expectedStatus !== "skipped")
+      test
+        .info()
+        .annotations.push({ type: "case-status", description: "failed" });
+    throw error;
   } finally {
     await test.step("After: 在庫復元とプロセス回収", async () => {
       const errors: unknown[] = [];
@@ -197,7 +309,7 @@ test("inconsistent relationship rejects order", async ({ page }) => {
       } catch (e) {
         errors.push(e);
       }
-      expect.soft(errors.map(String), "After失敗").toEqual([]);
+      if (errors.length) throw new AggregateError(errors, "After失敗");
     });
   }
 });

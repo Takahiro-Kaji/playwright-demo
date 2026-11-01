@@ -38,12 +38,21 @@ test("UI real learning HTTP success", async ({ page }) => {
         ),
       ).toEqual([{ version: 2, quantity: 4 }]);
     });
+    test
+      .info()
+      .annotations.push({ type: "case-status", description: "passed" });
+  } catch (error) {
+    if (test.info().expectedStatus !== "skipped")
+      test
+        .info()
+        .annotations.push({ type: "case-status", description: "failed" });
+    throw error;
   } finally {
     await test.step("After: プロセス停止と専用DB削除", async () => {
       try {
         await h.cleanup();
       } catch (error) {
-        expect.soft(String(error), "After失敗").toBe("");
+        throw new Error("After失敗", { cause: error });
       }
     });
   }
@@ -56,7 +65,7 @@ test("UI mock upstream unavailable", async ({ page }) => {
     let before: unknown;
     await test.step("Given: F1とモック503", async () => {
       expect(await h.batch()).toBe(0);
-      before = h.query("SELECT * FROM inventory ORDER BY product_code");
+      before = h.snapshot();
       old = await h.status();
       expect(await h.status(503)).toBe(503);
       expect((await fetch(h.upstream + "/catalog")).status).toBe(503);
@@ -73,11 +82,17 @@ test("UI mock upstream unavailable", async ({ page }) => {
       await expect(page.locator("#availability-result")).toHaveText(
         "外部システムエラー",
       );
-      expect(h.query("SELECT * FROM inventory ORDER BY product_code")).toEqual(
-        before,
-      );
-      expect(h.query("SELECT * FROM orders")).toEqual([]);
+      expect(h.snapshot()).toEqual(before);
     });
+    test
+      .info()
+      .annotations.push({ type: "case-status", description: "passed" });
+  } catch (error) {
+    if (test.info().expectedStatus !== "skipped")
+      test
+        .info()
+        .annotations.push({ type: "case-status", description: "failed" });
+    throw error;
   } finally {
     await test.step("After: 設定を復元しプロセスを回収", async () => {
       const errors = await settleAfter([
@@ -91,7 +106,7 @@ test("UI mock upstream unavailable", async ({ page }) => {
           await h.cleanup(prior.length > 0);
         },
       ]);
-      expect.soft(errors.map(String), "After失敗").toEqual([]);
+      if (errors.length) throw new AggregateError(errors, "After失敗");
     });
   }
 });

@@ -1,6 +1,6 @@
 # ハンズオン
 
-Node 26、npm、Google Chromeを準備し `npm install`。`npm run sales:check`、`npm run sales:test:unit`、`npm run sales:test:verification` を実行する。`npm run sales:test:ui`、`npm run sales:test:batch`、`npm run sales:test:cross` は分類別、`npm run sales:test` は一括。ループバック待受とChromeが必要。同期中の重なりを観測できないときは未確認で一括は非ゼロ。要約の出力先は実行時に表示される `.local/sales-learning-evidence/<runId>/summary.json`。
+Node 26、npm、Google Chromeを準備し `npm install`。`npm run sales:check`、`npm run sales:test:unit`、`npm run sales:test:verification` を実行する。`npm run sales:test:ui`、`npm run sales:test:batch`、`npm run sales:test:cross` は分類別、`npm run sales:test` は一括。ループバック待受とChromeが必要。同期中の重なりを観測できないときは未確認で一括は非ゼロ。部分実行は成功しても要約の総合判定は未完了で、全7件の選択範囲と未実施が記録される。Afterの復元・停止失敗では後続を止める。要約の出力先は実行時に表示される `.local/sales-learning-evidence/<runId>/summary.json`。
 
 ## 意図的にFAILを見る
 

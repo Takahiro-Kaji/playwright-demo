@@ -41,12 +41,21 @@ test("batch real learning HTTP matches all rows", async () => {
       }
       expect(h.query("SELECT * FROM inventory")).toHaveLength(2);
     });
+    test
+      .info()
+      .annotations.push({ type: "case-status", description: "passed" });
+  } catch (error) {
+    if (test.info().expectedStatus !== "skipped")
+      test
+        .info()
+        .annotations.push({ type: "case-status", description: "failed" });
+    throw error;
   } finally {
     await test.step("After: プロセス回収", async () => {
       try {
         await h.cleanup();
       } catch (error) {
-        expect.soft(String(error), "After失敗").toBe("");
+        throw new Error("After失敗", { cause: error });
       }
     });
   }
@@ -79,6 +88,15 @@ test("batch mock failure leaves all state unchanged", async () => {
       expect(h.query("SELECT * FROM sync_state")).toEqual(state);
       expect(h.query("SELECT * FROM orders")).toEqual([]);
     });
+    test
+      .info()
+      .annotations.push({ type: "case-status", description: "passed" });
+  } catch (error) {
+    if (test.info().expectedStatus !== "skipped")
+      test
+        .info()
+        .annotations.push({ type: "case-status", description: "failed" });
+    throw error;
   } finally {
     await test.step("After: モック復元とプロセス回収", async () => {
       const errors = await settleAfter([
@@ -92,7 +110,7 @@ test("batch mock failure leaves all state unchanged", async () => {
           await h.cleanup(prior.length > 0);
         },
       ]);
-      expect.soft(errors.map(String), "After失敗").toEqual([]);
+      if (errors.length) throw new AggregateError(errors, "After失敗");
     });
   }
 });

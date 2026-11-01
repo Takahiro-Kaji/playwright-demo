@@ -1,4 +1,5 @@
 import { test } from "@playwright/test";
+import { snapshotSales } from "./snapshot.ts";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
 import { mkdir, rm, writeFile } from "node:fs/promises";
@@ -143,6 +144,14 @@ export async function harness(mode: "upstream" | "mock") {
       d.close();
     }
   }
+  function snapshot() {
+    const d = new DatabaseSync(db);
+    try {
+      return snapshotSales(d);
+    } finally {
+      d.close();
+    }
+  }
   async function cleanup(preserve = false) {
     const unknown: number[] = [];
     for (const p of processes) {
@@ -162,12 +171,10 @@ export async function harness(mode: "upstream" | "mock") {
         `PROCESS_STOP_UNCONFIRMED: ${dir}; pids=${unknown.join(",")}`,
       );
     if (!preserve) await rm(dir, { recursive: true, force: true });
-    test
-      .info()
-      .annotations.push({
-        type: "after",
-        description: preserve ? "要復旧・DB保持" : "停止確認・専用DB削除済み",
-      });
+    test.info().annotations.push({
+      type: "after",
+      description: preserve ? "要復旧・DB保持" : "停止確認・専用DB削除済み",
+    });
   }
   return {
     app,
@@ -179,6 +186,7 @@ export async function harness(mode: "upstream" | "mock") {
     status,
     query,
     execute,
+    snapshot,
     cleanup,
   };
 }
