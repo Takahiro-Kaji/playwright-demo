@@ -2,7 +2,7 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: sales-sso
-  namespace: integration-demo
+  namespace: ${SALES_NAMESPACE}
   labels:
     app.kubernetes.io/part-of: sales-aws-demo
   annotations:

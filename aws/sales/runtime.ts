@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import mysql from 'mysql2/promise';
 import { page, script, upstreamServer } from '../../demo/sales/server.ts';
 import { syncSales, products, orderSales } from './db.ts';
+import { mysqlTls } from './tls.ts';
 
 function required(k: string) { const v = process.env[k]; if (!v) throw Error(`${k}_REQUIRED`); return v; }
 function upstream() {
@@ -11,7 +12,7 @@ function upstream() {
   return url;
 }
 function pool() {
-  return mysql.createPool({ host:required('DB_HOST'), user:required('DB_USER'), password:required('DB_PASSWORD'), database:required('DB_NAME'), ssl:{ca:readFileSync(required('DB_CA_FILE')),rejectUnauthorized:true}, connectionLimit:4, connectTimeout:7000, charset:'utf8mb4' });
+  return mysql.createPool({ host:required('DB_HOST'), user:required('DB_USER'), password:required('DB_PASSWORD'), database:required('DB_NAME'), ssl:mysqlTls(required('DB_CA_FILE')), connectionLimit:4, connectTimeout:7000, charset:'utf8mb4' });
 }
 async function catalog() {
   const r = await fetch(new URL('/catalog', upstream()), {signal:AbortSignal.timeout(5000),redirect:'error'});

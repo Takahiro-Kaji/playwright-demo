@@ -10,6 +10,9 @@ if (!/^arn:[a-z0-9-]+:acm:[a-z0-9-]+:\d{12}:certificate\/[a-f0-9-]+$/.test(value
     !/^(?=.{1,253}$)[a-z0-9]+(?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9]+(?:[a-z0-9-]*[a-z0-9])?)+$/.test(value.UI_HOST)) throw Error('Invalid ingress configuration');
 const parts = value.OPERATOR_CIDR.split('/');
 if (parts.length !== 2 || net.isIP(parts[0]) !== 4 || !/^(?:[1-9]|[12][0-9]|3[0-2])$/.test(parts[1])) throw Error('OPERATOR_CIDR must be a restricted IPv4 CIDR');
+const runId = process.env.SALES_RUN_ID || '';
+if (runId && !/^[a-f0-9]{32}$/.test(runId)) throw Error('SALES_RUN_ID_INVALID');
+value.SALES_NAMESPACE = runId ? `sales-test-${runId}` : 'integration-demo';
 const template = fs.readFileSync(`${__dirname}/ingress.yaml.tpl`, 'utf8');
 process.stdout.write(template.replace(/\$\{([A-Z_]+)\}/g, (_, key) => {
   if (!Object.hasOwn(value, key)) throw Error('Unknown placeholder');

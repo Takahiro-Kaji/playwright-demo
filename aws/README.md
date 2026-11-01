@@ -35,12 +35,12 @@ export SALES_AUTH_SUCCESS_SELECTOR='#refresh'
 export SALES_AUTH_STATE='.local/auth/aws-sales.json'
 export AWS_SSO_COGNITO_DOMAIN='example.auth.ap-northeast-1.amazoncognito.com'
 npm run sales:auth:setup
-npx playwright test -c aws/tests/sso.config.ts
+npm run aws-sales:sso
 ```
 
 実際の UI URL と Cognito ドメインに差し替え、下記の DB 接続設定を用意して各リージョンで実行する。認証セットアップは手動ログイン後、別コンテキストとChrome再起動後の再利用を確認する。試験は未認証の画面と受注 API が Cognito に遷移すること、保存状態で販売管理画面と商品 API を利用できることを確認する。専用 DB 商品を作成し、未認証受注後にその商品に受注が存在しないことを確認し、想定外の受注も含め専用行を削除し全受注・商品・在庫を事前状態と照合する。失敗時も後片付けを試み、後片付け失敗は別に報告する。両リージョンで他の受注と同期を停止し、専用検証 DB で実行する。状態なしの新規 context は再認証を要求する。期限切れの状態は検証していない。trace・動画・スクリーンショットは無効。状態ファイルは機密情報として扱う。
 
-ローカル版の7ケースは専用SQLite・ローカルプロセスを使うため、このAWS環境を自動的に試験しない。AWS上の業務シナリオとDB照合は別途追加が必要。
+ローカル版の7ケースは専用SQLite・ローカルプロセスを使うため、このAWS環境を自動的に試験しない。AWS向け業務7ケース・専用DB・Job・復元の実行入口は [AWS業務7ケース](../tests/aws-sales/README.md) を参照する。実AWSの実行は未検証。
 
 ## 作成前の費用と削除計画
 
@@ -80,3 +80,9 @@ SELECT order_id FROM orders WHERE product_code=@probe;
 ```
 
 各結果が空になることを確認する。中断が削除前後のどちらでも同じ ID で再実行できる。結果が不明、DB エラー、対象不一致の場合は成功とせず調査を続ける。強制終了時には試験プロセス内の全表比較も完了していない可能性があり、専用行が消えただけでは DB 全体が元の状態だったと証明できない。別途保持した実行前の全表結果と比較するか、専用検証 DB を初期状態に再構築する。
+
+## 専用環境の業務7ケース
+
+`aws-sales:manage prepare` → DNS確認 → `check` → `auth` → `aws-sales:run` の順で専用環境を使う。通常namespaceの共有DBは初期化しない。設定・権限・一括/個別実行・失敗/強制終了時の復旧は [実行手順](../tests/aws-sales/README.md) を参照。今回専用IngressとALBを回収してから、上記の基盤削除へ進む。
+
+通常構成の描画では `SALES_UPSTREAM_MODE=upstream`（既定）または `mock`、`SALES_RUN_ID` によるnamespace/DB名の変更もできる。ただし名前の変更だけでは所有確認や隔離は成立しない。業務試験には上記manage入口を使い、通常namespaceで手動の故障注入やDB初期化をしない。通常IFも本番外部サービスではなく学習用HTTPサービス。
