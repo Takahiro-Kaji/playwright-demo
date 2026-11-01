@@ -79,7 +79,7 @@ resource "aws_nat_gateway" "demo" {
 
 resource "aws_route_table" "private" {
   vpc_id = aws_vpc.demo.id
-  tags = { Name = "${var.project_name}-private-rt" }
+  tags   = { Name = "${var.project_name}-private-rt" }
 }
 
 resource "aws_route_table_association" "private" {
