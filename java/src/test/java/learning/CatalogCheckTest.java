@@ -16,12 +16,14 @@ class CatalogCheckTest {
             s.execute("INSERT INTO products VALUES('P001','ペン',120,1,1),('P002','ノート',300,1,1)");
             s.execute("INSERT INTO inventory VALUES('P001',5),('P002',2)"); s.execute("INSERT INTO sync_state VALUES(1,1)");
             assertTrue(CatalogCheck.differences(CatalogCheck.f1(),snapshot(c)).isEmpty());
+            // SQL で欠落・重複・余剰・値・関連などを注入し、照合器が検出するか試す。
             String[] faults={"DELETE FROM products WHERE product_code='P001'", "INSERT INTO products VALUES('P001','ペン',120,1,1)",
                 "INSERT INTO products VALUES('P003','余剰',1,0,1)", "UPDATE products SET price=121 WHERE product_code='P001'",
                 "UPDATE inventory SET product_code='P003' WHERE product_code='P001'", "UPDATE inventory SET quantity=1 WHERE product_code='P002'",
                 "UPDATE products SET version=2 WHERE product_code='P001'", "UPDATE sync_state SET catalog_version=2",
                 "INSERT INTO orders VALUES('unexpected','P001',1,120,'CREATED')"};
             for(String fault:faults) {
+                // 各故障は独立させ、次の故障注入の前に元の状態へ戻す。
                 s.execute("SAVEPOINT inject"); s.execute(fault);
                 assertFalse(CatalogCheck.differences(CatalogCheck.f1(),snapshot(c)).isEmpty(),fault);
                 s.execute("ROLLBACK TO inject"); s.execute("RELEASE inject");

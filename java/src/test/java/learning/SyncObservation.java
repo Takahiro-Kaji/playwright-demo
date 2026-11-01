@@ -21,11 +21,13 @@ final class SyncObservation {
     final AtomicReference<Throwable> observerFailure=new AtomicReference<>();
     volatile long requestStart, responseEnd;
     SyncObservation(SalesHarness h, Page page, String runId) { this.h=h; this.page=page; this.runId=runId; }
+    // 同期中ケース専用の固定データ。商品コード・価格・数量を実測値から作らない。
     static Map<String,Object> fixture(int version) {
         List<Map<String,Object>> products=new ArrayList<>();
         for(int i=1;i<=COUNT;i++) products.add(SalesHarness.product(String.format("S%04d",i),String.format("学習商品%04d",i),100+i,version==1?5:3));
         return Map.of("catalogVersion",version,"products",products);
     }
+    // 別スレッドでは JDBC だけを使い、各問い合わせの開始と終了を記録する。
     void observe() {
         try (Connection c=h.connection(); Statement s=c.createStatement()) {
             while(observing.get() && samples.size()<MAX_SAMPLES) {
@@ -39,6 +41,7 @@ final class SyncObservation {
             }
         } catch(Throwable e) { observerFailure.set(e); }
     }
+    // 同じ HTTP 要求から応答までの内側で、版1から版2への変化が観測された場合だけ成立。
     boolean overlap() {
         synchronized(samples) {
             for(var a:attempts) {
@@ -54,6 +57,7 @@ final class SyncObservation {
         }
         return false;
     }
+    // 一部の代表行だけではなく、応答と画面の全3000行・操作可能状態を照合する。
     void verifyResponse(JsonNode rows) {
         assertEquals(COUNT,rows.size());
         int version=rows.get(0).get("version").asInt(); assertTrue(version==1 || version==2);
@@ -72,6 +76,7 @@ final class SyncObservation {
         assertTrue(page.getByRole(AriaRole.BUTTON,new Page.GetByRoleOptions().setName("商品表示")).isEnabled());
         assertEquals(COUNT, page.locator("#products button:enabled").count());
     }
+    // バッチの終了コードとは別に、同期後の4表を固定期待値で検証する。
     void verifyFinal() throws Exception {
         var products=h.query("SELECT * FROM products ORDER BY product_code");
         var inventory=h.query("SELECT * FROM inventory ORDER BY product_code");
@@ -91,6 +96,7 @@ final class SyncObservation {
             page.onPageError(errors::add);
             page.onRequest(r -> { if(r.url().endsWith("/api/products")) requestStart=System.nanoTime(); });
             page.onResponse(r -> { if(r.status()>=500) errors.add("HTTP "+r.status()); if(r.url().endsWith("/api/products")) responseEnd=System.nanoTime(); });
+            // Playwright はこのスレッドで操作し、DB の観測だけを executor に任せる。
             observer=executor.submit(this::observe); batch=h.batchStart(); long deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(12);
             for(int i=0;i<MAX_ATTEMPTS && System.nanoTime()<deadline && (batch.isAlive() || i==0);i++) {
                 requestStart=0; responseEnd=0;
@@ -113,6 +119,7 @@ final class SyncObservation {
             batchCode=batch.exitValue(); assertEquals(0,batchCode); observing.set(false); observer.get(5,TimeUnit.SECONDS);
             if(observerFailure.get()!=null) throw new AssertionError("JDBC observer failed",observerFailure.get());
             assertFalse(attempts.isEmpty()); assertTrue(errors.isEmpty()); verifyFinal(); established=overlap();
+            // 観測できなかったことは成功でも仕様違反の確定でもなく、未確認として非ゼロにする。
             if(!established) throw new SalesScenariosTest.Unconfirmed("version transition was not observed within any HTTP request-response interval");
         } finally {
             observing.set(false); executor.shutdownNow();

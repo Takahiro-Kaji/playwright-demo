@@ -9,6 +9,7 @@ import java.util.concurrent.*;
 import static com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
 
+// 復元に失敗したら後続を止められるよう、ケースを番号順に実行する。
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class SalesScenariosTest {
     static final String[] NAMES = {"ui-real", "ui-mock", "batch-real", "batch-mock", "sync-ui", "stale-order", "inconsistent-order"};
@@ -22,6 +23,7 @@ class SalesScenariosTest {
     String name;
     boolean mockChanged, removed;
 
+    // 実行されなかったケースも NOT_RUN として残し、部分実行を総合 PASS にしない。
     @BeforeAll static void initialize() {
         for (String n : NAMES) results.put(n, new LinkedHashMap<>(Map.of("case", "NOT_RUN", "after", "NOT_RUN")));
     }
@@ -37,6 +39,7 @@ class SalesScenariosTest {
             page = browser.newPage();
             page.setDefaultTimeout(5000);
             page.setDefaultNavigationTimeout(5000);
+            // アプリの fetch 応答を複製して検証する。応答内容を変更せず、証跡にも本文を保存しない。
             page.addInitScript("""
                 window.__testBodies = {};
                 const originalFetch = window.fetch;
@@ -50,6 +53,7 @@ class SalesScenariosTest {
         }
     }
     interface Scenario { void run() throws Exception; }
+    // 試験本体の判定は After の成否とは別に記録する。
     void run(Scenario scenario) throws Exception {
         try { scenario.run(); results.get(name).put("case", "PASS"); }
         catch (Throwable e) {
@@ -59,6 +63,7 @@ class SalesScenariosTest {
         }
     }
     static final class Unconfirmed extends AssertionError { Unconfirmed(String message) { super(message); } }
+    // 復元が失敗しても他の停止処理を続け、失敗はまとめて報告する。
     @AfterEach void cleanup() throws Exception {
         if (name == null) return;
         List<Throwable> errors = new ArrayList<>();
@@ -80,6 +85,7 @@ class SalesScenariosTest {
             errors.forEach(error::addSuppressed); throw error;
         }
     }
+    // runId ごとに保存し、既存の試験結果を上書きしない。
     @AfterAll static void evidence() throws Exception {
         Path path = SalesHarness.ROOT.resolve(".local/java-evidence/" + RUN_ID + "/summary.json");
         Files.createDirectories(path.getParent());
@@ -93,10 +99,12 @@ class SalesScenariosTest {
         page.waitForFunction("path => window.__testBodies && window.__testBodies[path]", path);
         return SalesHarness.JSON.valueToTree(page.evaluate("path => window.__testBodies[path]",path));
     }
+    // 操作より先に応答待ちを登録し、速い HTTP 応答を取り逃さない。
     Response order() { return page.waitForResponse(r -> r.url().endsWith("/api/orders"), () -> page.locator("[data-product-code='P001']").click()); }
     void expectF1() throws Exception {
         assertEquals(List.of(), CatalogCheck.differences(CatalogCheck.f1(), h.snapshot()));
     }
+    // ケース1: F1 を同期 → 画面から受注 → 受注結果と4表を照合。
     @Test @Order(1) void uiReal() throws Exception { run(() -> {
         open(false,true); sync(); page.navigate(h.app);
         page.getByRole(AriaRole.BUTTON, new Page.GetByRoleOptions().setName("外部接続確認")).click();
@@ -112,6 +120,7 @@ class SalesScenariosTest {
         assertEquals(List.of(List.of(orderId,"P001",1,120,"CREATED")),h.query("SELECT * FROM orders"));
         assertEquals(List.of(List.of(1,1)),h.query("SELECT * FROM sync_state"));
     }); }
+    // ケース2: 上流を503に設定 → 接続確認 → 502表示と4表の不変を確認。After で復元する。
     @Test @Order(2) void uiMock() throws Exception { run(() -> {
         open(true,true); sync(); var before = h.snapshot(); mockChanged=true; assertEquals(503,h.status(503));
         assertEquals(503,h.get(h.upstream+"/catalog").statusCode()); page.navigate(h.app);
@@ -119,14 +128,18 @@ class SalesScenariosTest {
         assertEquals(502,r.status()); assertEquals("UPSTREAM_UNAVAILABLE",body("/api/availability").get("error").asText());
         assertThat(page.locator("#availability-result")).hasText("外部システムエラー"); assertEquals(before,h.snapshot());
     }); }
+    // ケース3: 実 HTTP の F1 を取得 → バッチ実行 → 独立した固定期待値と4表を比較。
     @Test @Order(3) void batchReal() throws Exception { run(() -> {
         open(false,false); assertEquals(SalesHarness.JSON.valueToTree(SalesHarness.fixture(1)), SalesHarness.JSON.readTree(h.get(h.upstream+"/catalog").body())); sync(); expectF1();
     }); }
+    // ケース4: 上流503 → バッチ失敗 → 失敗前後の4表が同じことを確認。
     @Test @Order(4) void batchMock() throws Exception { run(() -> {
         open(true,false); sync(); var before=h.snapshot(); mockChanged=true; assertEquals(503,h.status(503));
         assertEquals(503,h.get(h.upstream+"/catalog").statusCode()); assertNotEquals(0,h.batch()); assertEquals(before,h.snapshot());
     }); }
+    // ケース5: 3000件で同期と画面参照を並行し、実際に重なりを観測できたか判定する。
     @Test @Order(5) void syncUi() throws Exception { run(() -> { open(false,true); new SyncObservation(h,page,RUN_ID).run(); }); }
+    // ケース6: 旧版を表示後に新版へ同期 → 旧画面で受注 → 409 と4表不変。
     @Test @Order(6) void staleOrder() throws Exception { run(() -> {
         open(false,true); sync(); show(); h.catalog(SalesHarness.fixture(2)); sync();
         assertEquals(List.of(List.of("P001","ペン",120,1,2),List.of("P002","ノート",300,1,1)),h.query("SELECT * FROM products ORDER BY 1"));
@@ -135,6 +148,7 @@ class SalesScenariosTest {
         var before=h.snapshot(); Response r=order(); assertEquals(409,r.status()); assertEquals("STALE_VERSION",body("/api/orders").get("error").asText());
         assertThat(page.locator("#result")).hasText("情報が更新されました。再表示してください"); assertEquals(before,h.snapshot());
     }); }
+    // ケース7: 在庫行を意図的に欠落 → 受注 → 409 と4表不変。After で在庫行を戻す。
     @Test @Order(7) void inconsistentOrder() throws Exception { run(() -> {
         open(false,true); sync(); show(); h.execute("DELETE FROM inventory WHERE product_code='P001'"); removed=true; var before=h.snapshot();
         Response r=order(); assertEquals(409,r.status()); assertEquals("INCONSISTENT_DATA",body("/api/orders").get("error").asText());

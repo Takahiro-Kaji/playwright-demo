@@ -27,12 +27,14 @@ final class SalesHarness implements AutoCloseable {
     String upstream, app;
     boolean preserve;
 
+    // 空きポートを一時的に確保して番号を選ぶ。後続の起動失敗も回収対象にする。
     static int port() throws IOException {
         try (ServerSocket socket = new ServerSocket(0)) { return socket.getLocalPort(); }
     }
     static Map<String,Object> product(String code, String name, int price, int quantity) {
         return Map.of("productCode", code, "name", name, "price", price, "quantity", quantity, "active", true);
     }
+    // デモの期待値は実際の DB や API 応答から生成せず、事前に固定する。
     static Map<String,Object> fixture(int version) {
         return Map.of("catalogVersion", version, "products", List.of(
             product("P001", "ペン", 120, version == 1 ? 5 : 3),
@@ -55,6 +57,7 @@ final class SalesHarness implements AutoCloseable {
     static final class StartCleanupFailure extends Exception {
         StartCleanupFailure(Throwable start, Throwable cleanup) { super("start failed and cleanup was not confirmed", start); addSuppressed(cleanup); }
     }
+    // 起動途中で失敗しても、それまでに起動した子プロセスを必ず回収する。
     static SalesHarness open(boolean mock) throws Exception {
         SalesHarness h = new SalesHarness();
         try {
@@ -85,6 +88,7 @@ final class SalesHarness implements AutoCloseable {
     Process batchStart() throws IOException {
         return start(List.of("demo/sales/batch.ts"), Map.of("SALES_DB", db.toString(), "UPSTREAM_URL", upstream));
     }
+    // 同期バッチの終了だけでは成功とせず、呼び出し元で DB 全体も照合する。
     int batch() throws Exception {
         Process p = batchStart();
         if (!p.waitFor(20, TimeUnit.SECONDS)) throw new IOException("batch timeout");
@@ -99,6 +103,7 @@ final class SalesHarness implements AutoCloseable {
         }
     }
     void execute(String sql) throws SQLException { try (Connection c=connection(); Statement s=c.createStatement()) { s.executeUpdate(sql); } }
+    // 4表を同じ読み取りトランザクションで取得し、操作前後を比較できるようにする。
     Map<String,List<List<Object>>> snapshot() throws SQLException {
         try (Connection c=connection(); Statement s=c.createStatement()) {
             c.setAutoCommit(false);
@@ -114,6 +119,7 @@ final class SalesHarness implements AutoCloseable {
             c.commit(); return result;
         }
     }
+    // 全プロセスの終了を確認し、確認できない場合は復旧用の DB を残す。
     @Override public void close() throws Exception {
         List<Long> alive = new ArrayList<>();
         for (Process p : processes) if (p.isAlive()) p.destroy();
