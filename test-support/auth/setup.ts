@@ -1,30 +1,12 @@
 /** 手動SSOの保存と再利用を確認する入口。設定検証、setupAuth、コマンド入口の順に読む。 */
 import { chromium } from "@playwright/test";
 import { mkdir, chmod } from "node:fs/promises";
-import { resolve, sep, dirname } from "node:path";
+import { dirname } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
+import { validateAuthConfig } from "./config.ts";
+export { validateAuthConfig } from "./config.ts";
 
-/**
- * 保存先stateと対象URLを検証し、正規化したpathとurlを返す。
- * ローカル指定外、HTTPS以外、秘密を含み得るURLなどは例外。
- */
-export function validateAuthConfig(state: string, target: string) {
-  const root = resolve(".local/auth") + sep;
-  const path = resolve(state);
-  if (!path.startsWith(root) || !path.endsWith(".json"))
-    throw Error("AUTH_PATH_REQUIRED");
-  const url = new URL(target);
-  if (
-    url.protocol !== "https:" ||
-    url.username ||
-    url.password ||
-    url.search ||
-    url.hash
-  )
-    throw Error("HTTPS_TARGET_REQUIRED");
-  return { path, url: url.toString() };
-}
 /**
  * 手動認証後の状態を保存し、新contextとChrome再起動後の再利用を検証する。
  * stateは保存先、targetは開始URL、expectedUrlとselectorは認証済み画面の条件。戻り値なし。

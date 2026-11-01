@@ -9,7 +9,7 @@
     "test:integration:headed": "playwright test -c sales.config.ts --headed",
     "test:list": "playwright test -c sales.config.ts --list --reporter=list",
     "test:syntax": "npm run sales:check",
-    "sales:check": "tsc --noEmit --module esnext --moduleResolution bundler --target es2022 --types node --allowImportingTsExtensions --skipLibCheck demo/sales/*.ts test-support/*.ts test-support/auth/*.ts tests/targets/sales/*.ts tests/scenarios/*/*.ts tests/verification/*/*.ts",
+    "sales:check": "tsc --noEmit --module esnext --moduleResolution bundler --target es2022 --types node --allowImportingTsExtensions --skipLibCheck demo/sales/*.ts test-support/*.ts test-support/auth/*.ts tests/targets/sales/*.ts tests/scenarios/*/*.ts tests/verification/*/*.ts tests/real-app/*.ts",
     "sales:test:unit": "node --test tests/verification/sales-demo/*.test.ts tests/verification/support/*.test.ts tests/verification/auth/*.test.ts",
     "sales:test:verification": "node --test tests/verification/sales-comparison/*.test.ts",
     "sales:test:ui": "playwright test -c sales.config.ts tests/scenarios/ui",
@@ -17,6 +17,7 @@
     "sales:test:cross": "playwright test -c sales.config.ts tests/scenarios/cross-feature",
     "sales:test": "npm run sales:check && npm run sales:test:unit && npm run sales:test:verification && playwright test -c sales.config.ts",
     "sales:auth:setup": "node test-support/auth/setup.ts",
+    "real-app:test": "playwright test -c tests/real-app/real-app.config.ts",
     "test": "npm run sales:test"
   },
   "devDependencies": {
