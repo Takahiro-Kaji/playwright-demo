@@ -3,6 +3,8 @@ kind: Ingress
 metadata:
   name: sales-sso
   namespace: integration-demo
+  labels:
+    app.kubernetes.io/part-of: sales-aws-demo
   annotations:
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
