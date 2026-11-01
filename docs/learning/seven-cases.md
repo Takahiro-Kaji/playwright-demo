@@ -45,14 +45,14 @@
 
 UI-02と同じ `upstreamErrorStatuses`（500・502・503）で3件を登録し、それぞれ準備・実行・不変確認・復元を行う。レポーターはBATCH-02として3件すべてを集計する。
 
-**目的**：上流障害で同期が失敗し、事前DBを変更しないことを確認する。[実ファイル](../../tests/scenarios/batch/sales.spec.ts)
+**目的**：上流障害で同期が失敗し、対象スコープの商品・在庫・同期世代が変わらないことを確認する。[実ファイル](../../tests/scenarios/batch/sales.spec.ts)
 
-- **Given**：`harness('mock')` → `batch()` でデータセット1同期 → `snapshot({ kind: "sync" })` で対象スコープの商品・在庫・sales_sync_scopesを保存。受注は0件。モックの元値を `status()` で退避し各 `status` に設定、実GETも同じステータスと確認。
+- **Given**：`harness('mock')` → `batch()` でデータセット1同期 → `snapshot({ kind: "sync" })` で対象スコープの商品・在庫・sales_sync_scopesを保存。モックの元値を `status()` で退避し各 `status` に設定、実GETも同じステータスと確認。
 - **When**：`batch()` を実行し、終了コードが0でないことを確認。
-- **Then**：対象スコープのproducts・inventory・sales_sync_scopesが事前取得と一致し、ordersは0件。
+- **Then**：対象スコープのproducts・inventory・sales_sync_scopesが事前取得と一致する。受注テーブルはこのケースの検証対象に含めない。
 - **After**：`settleAfter()` → 元ステータスへの `status(old)` と業務GETで復元確認 → `cleanup()`。復元と停止の失敗は集約し、後続試験を止める。
 
-呼出しの流れ：`harness` → `batch` → `query`／`status`／実GET → `batch` → `query`／`expect` → `settleAfter`／`status`／`cleanup`。
+呼出しの流れ：`harness` → `batch` → `snapshot`／`status`／実GET → `batch` → `snapshot`／`expect` → `settleAfter`／`status`／`cleanup`。
 
 ## CROSS-01：同期中のUI参照
 
