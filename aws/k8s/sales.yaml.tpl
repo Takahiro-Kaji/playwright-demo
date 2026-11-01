@@ -1,16 +1,16 @@
 apiVersion: v1
 kind: Namespace
-metadata: { name: integration-demo }
+metadata: { name: ${SALES_NAMESPACE}, labels: { sales-run: "${SALES_RUN_LABEL}" } }
 ---
 apiVersion: v1
 kind: ConfigMap
-metadata: { name: sales-catalog, namespace: integration-demo }
+metadata: { name: sales-catalog, namespace: ${SALES_NAMESPACE} }
 data:
   catalog.json: '${SALES_CATALOG}'
 ---
 apiVersion: apps/v1
 kind: Deployment
-metadata: { name: sales-upstream, namespace: integration-demo }
+metadata: { name: sales-upstream, namespace: ${SALES_NAMESPACE} }
 spec:
   replicas: 1
   selector: { matchLabels: { app: sales-upstream } }
@@ -33,14 +33,14 @@ spec:
 ---
 apiVersion: v1
 kind: Service
-metadata: { name: sales-upstream, namespace: integration-demo }
+metadata: { name: sales-upstream, namespace: ${SALES_NAMESPACE} }
 spec:
   selector: { app: sales-upstream }
   ports: [{ port: 8081, targetPort: http }]
 ---
 apiVersion: apps/v1
 kind: Deployment
-metadata: { name: sales-app, namespace: integration-demo }
+metadata: { name: sales-app, namespace: ${SALES_NAMESPACE} }
 spec:
   replicas: 1
   selector: { matchLabels: { app: sales-app } }
@@ -54,7 +54,7 @@ spec:
             - { name: PORT, value: "8080" }
             - { name: UPSTREAM_URL, value: "http://sales-upstream:8081/" }
             - { name: DB_HOST, value: "${DB_HOST}" }
-            - { name: DB_NAME, value: integration_demo }
+            - { name: DB_NAME, value: ${SALES_DB_NAME} }
             - { name: DB_USER, valueFrom: { secretKeyRef: { name: sales-db, key: username } } }
             - { name: DB_PASSWORD, valueFrom: { secretKeyRef: { name: sales-db, key: password } } }
             - { name: DB_CA_FILE, value: /certs/global-bundle.pem }
@@ -67,14 +67,14 @@ spec:
 ---
 apiVersion: v1
 kind: Service
-metadata: { name: sales-app, namespace: integration-demo }
+metadata: { name: sales-app, namespace: ${SALES_NAMESPACE} }
 spec:
   selector: { app: sales-app }
   ports: [{ port: 8080, targetPort: http }]
 ---
 apiVersion: batch/v1
 kind: CronJob
-metadata: { name: sales-batch, namespace: integration-demo }
+metadata: { name: sales-batch, namespace: ${SALES_NAMESPACE} }
 spec:
   schedule: "0 0 1 1 *"
   suspend: true
@@ -82,6 +82,7 @@ spec:
   jobTemplate:
     spec:
       backoffLimit: 0
+      activeDeadlineSeconds: 180
       template:
         spec:
           restartPolicy: Never
@@ -92,7 +93,7 @@ spec:
               env:
                 - { name: UPSTREAM_URL, value: "http://sales-upstream:8081/" }
                 - { name: DB_HOST, value: "${DB_HOST}" }
-                - { name: DB_NAME, value: integration_demo }
+                - { name: DB_NAME, value: ${SALES_DB_NAME} }
                 - { name: DB_USER, valueFrom: { secretKeyRef: { name: sales-db, key: username } } }
                 - { name: DB_PASSWORD, valueFrom: { secretKeyRef: { name: sales-db, key: password } } }
                 - { name: DB_CA_FILE, value: /certs/global-bundle.pem }
