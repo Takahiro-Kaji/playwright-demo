@@ -1,16 +1,9 @@
 import { manage } from "../../tests/aws-sales/manage.ts";
 import { existsSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import {
-  newJournal,
-  validateConfig,
-  loadJournal,
-  localPath,
-  saveJournal,
-  assertCondition,
-} from "../../tests/aws-sales/environment.ts";
+import { newJournal, validateConfig, loadJournal, localPath, saveJournal, assertCondition } from "../../tests/aws-sales/environment/state.ts";
 import { localEnvironment } from "./local-adapter.ts";
-import { cleanup } from "../../tests/aws-sales/cleanup.ts";
+import { cleanup } from "../../tests/aws-sales/environment/cleanup.ts";
 const file =
   process.env.AWS_SALES_LOCAL_JOURNAL ||
   ".local/aws-sales-qa/local-journal.json";

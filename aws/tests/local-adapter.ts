@@ -1,10 +1,7 @@
 /** ローカル検証専用。このアダプターではAWSの識別情報・ALB・Cognitoを検証しない。 */
-import { Environment } from "../../tests/aws-sales/lifecycle.ts";
-import {
-  command,
-  assertCondition,
-  type Journal,
-} from "../../tests/aws-sales/environment.ts";
+import { Environment } from "../../tests/aws-sales/environment/lifecycle.ts";
+import { command } from "../../tests/aws-sales/environment/cluster.ts";
+import { assertCondition, type Journal } from "../../tests/aws-sales/environment/state.ts";
 export function localEnvironment(file: string, j: Journal) {
   assertCondition(j.config.context === "kind-sales-pr9-qa", "LOCAL_CONTEXT_REQUIRED");
   const env = new Environment(file, j, async (binary, args, input, timeout) => {
@@ -42,6 +39,6 @@ export function localEnvironment(file: string, j: Journal) {
     if (operation === "describe-target-groups") return { TargetGroups: [] };
     throw Error("LOCAL_AWS_DISABLED");
   };
-  env.verifyTarget = async () => env.verifyBatchTarget();
+  env.target.verifyUi = async () => env.target.verifyBatch();
   return env;
 }

@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { fixture } from "./fixtures.ts";
-import { ids } from "../../aws-sales/reporter.ts";
+import { ids } from "../../aws-sales/support/reporter.ts";
 
 for (const config of ["aws-sales", "local"]) {
   test(`${config}: actual entrypoint lists scenarios in execution order`, () => {

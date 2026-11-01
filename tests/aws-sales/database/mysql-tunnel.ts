@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { Duplex } from "node:stream";
 import mysql from "mysql2/promise";
-import { mysqlTls } from "../../aws/sales/tls.ts";
+import { mysqlTls } from "../../../aws/sales/tls.ts";
 
 // 選択したアプリPod内で実行する。シェルは使わず、認証情報をコマンドライン引数に含めない。
 // 標準出力はMySQL通信プロトコル専用。標準エラー出力はログに記録しない。

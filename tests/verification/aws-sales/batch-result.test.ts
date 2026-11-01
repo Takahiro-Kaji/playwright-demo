@@ -1,9 +1,9 @@
-import { requireExpectedBatchError } from "../../aws-sales/batch-result.ts";
+import { requireExpectedBatchError } from "../../aws-sales/batch/result.ts";
 import { test } from "node:test";
 import { strict as a } from "node:assert";
 import { fixture } from "./fixtures.ts";
-import { Environment } from "../../aws-sales/lifecycle.ts";
-import { manifests } from "../../aws-sales/resources.ts";
+import { Environment } from "../../aws-sales/environment/lifecycle.ts";
+import { manifests } from "../../aws-sales/environment/resources.ts";
 for (const mode of [
   "success",
   "expected",
@@ -49,7 +49,7 @@ for (const mode of [
       a.equal(o.spec.activeDeadlineSeconds, 180);
       a.equal(o.spec.backoffLimit, 0);
     };
-    env.deleteOwned = async () => {
+    env.cluster.deleteOwned = async () => {
       deleted = true;
     };
     env.cluster.k = async (args) => {
@@ -114,7 +114,7 @@ for (const mode of [
       });
     };
     try {
-      const r = await env.batch(mode === "wait-timeout" ? 0 : 100);
+      const r = await env.batches.run(mode === "wait-timeout" ? 0 : 100);
       a.equal(deleted, true);
       a.equal(r.stop, "confirmed");
       const expected =

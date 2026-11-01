@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { salesFixture } from '../../aws-sales/fixture.ts';
+import { salesFixture } from '../../aws-sales/upstream/fixtures.ts';
 import { compareSalesRows } from '../../targets/sales/compare.ts';
 
 test('AWSの固定データに少量および3000件のカタログが含まれる', () => {

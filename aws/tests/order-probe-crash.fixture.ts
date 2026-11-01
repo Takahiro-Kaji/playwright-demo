@@ -1,7 +1,7 @@
 // 実際のSIGKILL後も要復旧の状態が保存されることを確認する子プロセス。
 // DB・AWSの入出力はすべて模擬する。復旧記録とファイルロックは実物を使用する。
-import { loadJournal } from '../../tests/aws-sales/environment.ts';
-import { Environment } from '../../tests/aws-sales/lifecycle.ts';
+import { loadJournal } from '../../tests/aws-sales/environment/state.ts';
+import { Environment } from '../../tests/aws-sales/environment/lifecycle.ts';
 import { withProbeDatabase } from './probe-database.ts';
 
 const file = process.argv[2], j = loadJournal(file);
@@ -15,8 +15,8 @@ const connection = {
   },
 };
 const create = () => ({
-  async verifyTarget() {},
-  async pool() { return { async getConnection() { return connection; } }; },
+  target: { async verifyUi() {} },
+  database: { async pool() { return { async getConnection() { return connection; } }; } },
 }) as unknown as Environment;
 await withProbeDatabase(file, {
   target:j.config.url, expected:j.config.url, state:j.config.stateFile, selector:'#refresh',

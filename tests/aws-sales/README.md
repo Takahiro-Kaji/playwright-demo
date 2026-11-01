@@ -4,19 +4,58 @@ TypeScript版の販売管理デモを、実行ごとの専用namespace・MySQL D
 
 **実AWSでは未検証。** コードのローカル検証とAWS受入を区別する。`aws-sales:list` はAWSに接続しない。`prepare`、`check`、`auth`、`run`、`recover`、`cleanup` は設定済み実環境へ操作するコマンドなので、AWS構築後の承認された検証で使う。
 
-## ファイルと実行経路
+## 構成とレビューの入口
 
-- `environment.ts`：外部設定・ローカルjournal・排他、AWS identity/EKS kubeconfig照合、所有ラベルとUID。
-- `resources.ts`：今回だけのbridge、DB Secret、アプリ、上流、Service、CronJob、Cognito Ingress。
-- `lifecycle.ts`：専用DBとユーザー作成・権限、SQLスキーマ初期化、データセット1投入、DNS/ALB/Ingress/Pod/DB照合、カタログ実応答、Jobと復元。
-- `mysql-tunnel.ts`：試験用bridge Podからprivate RDSへ接続し、ローカルのmysql2でCAとRDS名のTLS検証。トランザクションとロック中は同じ接続を保持する。
-- `harness.ts`：準備 → テスト本体 → 後片付けの実行順を定義する。UI専用 `uiSession` / `uiHarness` のみbrowserと保存認証を要求する。
-- `harness-session.ts`：DB/Kubernetes対象確認・ロック・初期化・個別/共通復元・結果保存を担当する。準備途中で失敗した場合も取得済みリソースを回収し、後片付けの失敗時は実行をブロックする。
-- `scenarios/01-ui/sales.spec.ts`、`scenarios/02-batch/sales.spec.ts`、`scenarios/03-cross-feature/sales.spec.ts`：ローカル版と同じ分類の7ケース。各specの `test()` → Given/When/Thenを読む。
-- `operations.ts`：共通の画面操作・バッチ正常完了確認・DB照合。
-- `fixtures.ts`：各configの実行モードで実AWS用と専用kind検証用のfixtureを切り替える。両環境で同じspecを使う。
-- `run.ts`：Playwright終了を待って成功・失敗の双方で今回環境を回収。
-- `cleanup.ts`：今回所有のJob・Pod・Ingress・ALB/TG不在確認、DBユーザー・DB、namespace回収。PR #8の通常namespace用削除処理の前に実行する。
+直下には実行入口と設定だけを置き、実装は操作対象・責務ごとに分ける。
+
+```text
+aws-sales/
+├── manage.ts / run.ts                 環境管理CLI / 試験実行と最終回収
+├── aws-sales.config.ts / local.config.ts
+├── config.example.json
+├── scenarios/                        業務7ケースのGiven / When / Then
+│   ├── 01-ui/
+│   ├── 02-batch/
+│   └── 03-cross-feature/
+├── support/                          Playwrightへの接続とケース共通操作
+│   ├── fixtures.ts / harness.ts / harness-session.ts
+│   ├── operations.ts / response-body.ts / polling.ts
+│   └── auth-config.ts / reporter.ts
+├── environment/                      環境全体の管理と接続先・所有関係の確認
+│   ├── lifecycle.ts / cleanup.ts
+│   ├── target-verifier.ts / workloads.ts
+│   └── cluster.ts / resources.ts / state.ts
+├── database/                         専用DBの管理・観測・排他
+│   ├── database.ts / mysql-tunnel.ts
+│   └── rows.ts / test-lock.ts
+├── batch/                            Job実行・停止と結果の判定
+│   └── runner.ts / result.ts
+└── upstream/                         上流データ・モック操作と固定fixture
+    └── catalog.ts / fixtures.ts
+```
+
+業務仕様のレビューは [scenarios](scenarios/) の各 `test()` から始める。画面操作・正常バッチ・DB照合の共通処理は [support/operations.ts](support/operations.ts)、テスト前後の資源管理は [support/harness-session.ts](support/harness-session.ts) を読む。`support/fixtures.ts` は実AWSと専用kindで同じspecを使うための切替入口で、`upstream/fixtures.ts` は固定データと期待値を定義する。
+
+環境の準備・復旧のレビューは [environment/lifecycle.ts](environment/lifecycle.ts) の `prepare()` / `restore()`、最終回収は [environment/cleanup.ts](environment/cleanup.ts) の `cleanup()` から始める。所有関係・停止確認・失敗記録を確認したい場合に、それぞれの担当へ進む。
+
+### クラスとモジュールの責務
+
+- `Environment`（`environment/lifecycle.ts`）：各担当を組み立て、準備・復元の順序と失敗時の継続条件を決める。SQL・HTTP・Job終了判定の詳細は持たない。
+- `TargetVerifier`（`environment/target-verifier.ts`）：UIはDNS/ALB/Ingress/Service/PodからDBまで、バッチはnamespace/bridge/Secret/CronJob/DBまで、実際の接続先を照合する。
+- `Cluster` / `Workloads`（`environment/cluster.ts` / `workloads.ts`）：前者はAWS・kubectl実行とリソースの所有確認・作成・削除、後者はDeployment/Podの準備完了とコンテナ設定を確認する。
+- `SalesDatabase`（`database/database.ts`）：bridge経由の接続、DB所有確認、専用スキーマ・ユーザーの作成/削除、データ初期化を担当する。全件読取り・照合は `rows.ts`、接続単位の協調ロックは `test-lock.ts` に置く。
+- `BatchRunner`（`batch/runner.ts`）：Jobの開始から終了証拠の取得・停止確認までを扱う。取得した証拠の解釈は `batch/result.ts` にまとめる。
+- `UpstreamCatalog`（`upstream/catalog.ts`）：固定fixtureとmock状態の切替、実際のHTTP応答の照合を担当する。
+- `HarnessSession`（`support/harness-session.ts`）：1ケースの対象確認・ロック取得・初期化・復元・解放・結果記録を担当する。`support/harness.ts` はこれをPlaywrightのfixtureへ接続し、UI専用fixtureだけがブラウザーと保存認証を要求する。
+- `AwsReporter`（`support/reporter.ts`）：business / After / 実行状態を集約し、未実施や未確認を全件PASSにしない。
+
+`environment/state.ts` は外部設定の検証・journal・ローカル排他を、`environment/resources.ts` は今回環境のマニフェストをまとめる。副作用のない処理をクラスにするためだけの包装は行わない。
+
+### メソッドの分け方
+
+分割の境界は、DBスキーマ作成、接続先照合、Job実行と停止など、独立してレビューできる責務とする。SQL一文やassert一つごとには分けない。`prepare()` / `restore()` は順序と安全条件、`BatchRunner.run()` は開始・判定・停止までを一続きで読める形を保つ。`Environment` に全操作の転送メソッドを残さず、ケースからは `h.env.upstream.useFixture(...)` や `h.env.batches.run(...)` と担当を明示する。
+
+npmの実行コマンドと直下のconfig・CLIのパスは従来どおり。内部モジュールを直接利用するコードは上記配置を参照する。回帰検証は `tests/verification/aws-sales/`、kind/MySQL接続用の検証アダプターは `aws/tests/` に置く。
 
 ## 外部設定と権限
 
@@ -58,7 +97,7 @@ npm run aws-sales:manage -- auth .local/aws-sales/tokyo-run.json
 
 `auth` はjournalのURLとstateFileを既存 `setupAuth()` に渡す。手動ログイン後、新contextとChrome再起動後の再利用を確認する。suiteでも各ケースの新contextに状態を読ませ、URLと `#refresh` を確認する。未設定・失効・別URLは失敗し、成功やskipへ置き換えない。UIはSSO入口だけを使い、port-forwardを実SSO試験として扱わない。
 
-バッチ単独の場合は手動認証・storageState・DNS/ALB経由の画面確認を待たず、prepare後に `npm run aws-sales:manage -- check-batch JOURNAL` で事前確認し、`npm run aws-sales:run -- JOURNAL --grep BATCH-01` またはBATCH-02を実行できる。共通設定にIngress用情報は残るが、試験ではアカウント・EKS/context・namespace・bridge・Jobひな型・DB Secret/CA・DB所有を `verifyBatchTarget()` で照合し、CognitoやstateFileを読み込まない。
+バッチ単独の場合は手動認証・storageState・DNS/ALB経由の画面確認を待たず、prepare後に `npm run aws-sales:manage -- check-batch JOURNAL` で事前確認し、`npm run aws-sales:run -- JOURNAL --grep BATCH-01` またはBATCH-02を実行できる。共通設定にIngress用情報は残るが、試験ではアカウント・EKS/context・namespace・bridge・Jobひな型・DB Secret/CA・DB所有を `target.verifyBatch()` で照合し、CognitoやstateFileを読み込まない。
 
 5. 一括または個別実行する。`run` は終了後に専用環境を回収するので、管理認証の環境変数を保持しておく。
 
@@ -82,21 +121,21 @@ npm run aws-sales:manage -- cleanup .local/aws-sales/tokyo-run.json
 
 ## ケース別の流れ
 
-UIケースは認証とURL/ALBを含む対象確認を行い、バッチケースはブラウザーなしでDB/Kubernetesの対象確認を行う。各ケースは共通Givenで設定・対象・所有確認を済ませ、今回DBの4表を空にする。既存業務データの初期化はしない。共通Afterは全件データセット1と通常IFを復元して確認する。テストは1 worker・retryなし・最初の失敗で停止。ファイル分割後の実行順はバッチ → 横断 → UI（`--list` で確認可能）。各ケースは共通Given/Afterで独立させる。
+UIケースは認証とURL/ALBを含む対象確認を行い、バッチケースはブラウザーなしでDB/Kubernetesの対象確認を行う。各ケースは共通Givenで設定・対象・所有確認を済ませ、今回DBの4表を空にする。既存業務データの初期化はしない。共通Afterは全件データセット1と通常IFを復元して確認する。テストは1 worker・retryなし・最初の失敗で停止。実行順はUI → バッチ → 横断で、各分類内はケースID順（`--list` で確認可能）。各ケースは共通Given/Afterで独立させる。
 
 - **UI-01「UI正常・学習用通常HTTP IFと受注」**：Given `batch()` → `compareMysql(データセット1)`。When `availability()` → `show()` → `order()`。Then 201・UUID・画面成功・固定単価/数量、在庫4/version2とP002不変を含む4表全件照合。After 共通復元。
-- **UI-02「UIモック503・DB不変」**：Given `catalog(f1,mock)` → `batch()` → 固定データセット1照合 → `snapshotMysql()` → 元status退避 → `mockStatus(503)` → `catalogMatches(503)`。When 画面接続確認。Then 502・外部エラー・4表不変。After status元値とHTTP確認 → 共通復元。
+- **UI-02「UIモック503・DB不変」**：Given `upstream.useFixture("f1", "mock")` → `batch()` → 固定データセット1照合 → `snapshotMysql()` → 元status退避 → `upstream.mockStatus(503)` → `upstream.verifyFixture("f1", 503)`。When 画面接続確認。Then 502・外部エラー・4表不変。After status元値とHTTP確認 → 共通復元。
 - **BATCH-01「バッチ正常・全件照合」**：Given データセット1の実応答と空DB。When 実 `batch()`。Then Job completeに加えて固定データセット1の全キー・件数・値・関連・世代・受注0件を比較。After 共通復元。
 - **BATCH-02「バッチモック503・異常終了とDB不変」**：Given データセット1同期 → 固定照合 → snapshot → モック503実応答。When 対象Job/Pod/バッチコンテナの所有確認、実行開始/終了、exitCode 1・reason Error・signalなし・既存固定エラーマーカーを確認（単なるFailedやtimeoutでは代替不可）。Job前後にモック503の実応答を確認する。Then 4表不変。After status元値/HTTPと共通復元。
 - **CROSS-01「同期中UI・3000件全表示と独立DB観測」**：Given bulk1同期/固定照合 → bulk2実応答。When 実Jobと継続UI・独立SELECTを並行。Then HTTP・全3,000表示・全ボタン・JS/HTTPエラー・最終DBを確認し、既存 `hasObservedOverlap()` で同じ参照内の1→2だけを採用する。試行開始/Job待機12秒、20試行、10,000観測、UI timeout3秒。すべてrunnerの単調時計でSELECTの送受信を囲むため、クラスタ時計への換算は不要。証拠不足はunconfirmedで非ゼロ終了。After 開始済み処理回収、Job停止・観測要約保存・共通復元。アプリへ遅延は入れない。
-- **CROSS-02「古いversionによる受注拒否」**：Given データセット1同期/表示 → データセット2へ `catalog()`/`batch()` → 固定データセット2照合 → snapshot。When 保持した旧画面から1回受注。Then 409/STALE_VERSION・画面再表示要求・4表不変。After 共通復元。
+- **CROSS-02「古いversionによる受注拒否」**：Given データセット1同期/表示 → データセット2へ `upstream.useFixture("f2")`/`batch()` → 固定データセット2照合 → snapshot。When 保持した旧画面から1回受注。Then 409/STALE_VERSION・画面再表示要求・4表不変。After 共通復元。
 - **CROSS-03「不整合情報による受注拒否・復元」**：Given データセット1同期/表示 → 所有確認済みDBのP001在庫行だけDELETE → snapshot。When 受注。Then 409/INCONSISTENT_DATA・画面異常・4表不変。After 固定値で在庫行を復元しデータセット1全件照合 → 共通復元。
 
 固定期待値は操作より前に定義する。snapshotは「Whenで変わらなかったこと」の基準であり、データセット1/データセット2の正しさを証明する期待値の代わりにはしない。受注のtimeoutや応答喪失時に再送しない。
 
 ## 判定・復旧
 
-`npm run aws-sales:manage -- summary JOURNAL` でも秘密を除いたケース結果を確認できる。`reporter.ts` の `.local/aws-sales-evidence/*.json` は選択範囲、ケース判定、After判定を別々に記録する。7件すべてpassedかつAfter confirmedのときだけ `allSevenPassed=true`。個別実行や未確認は全7件PASSにならない。journalには実行ID、所有UID、状態、ケース結果、数値時系列だけを保持し、生レスポンス・DB全件・Cookieを出さない。journal自身は専用DBパスワード等を含むのでmode600の秘密ファイルとして扱う。
+`npm run aws-sales:manage -- summary JOURNAL` でも秘密を除いたケース結果を確認できる。`support/reporter.ts` の `.local/aws-sales-evidence/*.json` は選択範囲、ケース判定、After判定を別々に記録する。7件すべてpassedかつAfter confirmedのときだけ `allSevenPassed=true`。個別実行や未確認は全7件PASSにならない。journalには実行ID、所有UID、状態、ケース結果、数値時系列だけを保持し、生レスポンス・DB全件・Cookieを出さない。journal自身は専用DBパスワード等を含むのでmode600の秘密ファイルとして扱う。
 
 AWS・localとも実行順は UI-01、UI-02、BATCH-01、BATCH-02、CROSS-01、CROSS-02、CROSS-03。CROSS-01が未確認の場合は業務判定をunconfirmedと記録し、Playwright上はskipとしてAfterを実行する。After成功時のみ後続を実行し、未確認を含む選択実行全体はreporterが非ゼロにする。業務失敗やAfter失敗は `maxFailures=1` で後続を停止する。証拠JSONの `execution` はreporterの最終判定前のPlaywright実行状態であり、選択範囲の成否は `selectedPassed` を参照する。
 
@@ -148,7 +187,7 @@ prepare → DNS設定 → check後、同じjournalを `AWS_SSO_JOURNAL` に指�
 
 接続確認もブラウザー内で `r.json()` を読み、200と `available === true` の双方を確認してから成功を表示する。以前は `r.ok` だけを読み、実ALB/Cognito + Chrome 156では未消費の本文に対するCDP `Network.loadingFinished` / Playwright `requestfinished` が来ず、試験側の本文取得が待ち続けた。同じリクエストの本文をブラウザー内で消費すると完了することを東京で切り分けた。これは観測した環境での発生条件であり、Chrome内部の一般的な不具合原因やHTTP/2固有の問題とまでは断定しない。
 
-`response-body.ts` は `finished()` と `text()` に共通の期限を適用し、その後JSONを解析する。通常は合計10秒、CROSS-01の本文取得は合計3秒。ステータス判定・固定本文比較・全画面表示・DB全件比較は維持する。対象応答は同じoriginの完全URL、HTTP method、main frameで選ぶ。
+`support/response-body.ts` は `finished()` と `text()` に共通の期限を適用し、その後JSONを解析する。通常は合計10秒、CROSS-01の本文取得は合計3秒。ステータス判定・固定本文比較・全画面表示・DB全件比較は維持する。対象応答は同じoriginの完全URL、HTTP method、main frameで選ぶ。
 
 - `HTTP_RESPONSE_FINISH_TIMEOUT` / `HTTP_RESPONSE_FINISH_FAILED`：応答完了通知の待機期限超過／通信失敗。
 - `HTTP_BODY_READ_TIMEOUT` / `HTTP_BODY_READ_FAILED`：本文取得の待機期限超過／取得失敗。

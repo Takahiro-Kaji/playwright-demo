@@ -1,19 +1,19 @@
 /** 同期中UI・古いversion・不整合受注の3ケース。共通Afterは harness.ts。 */
-import { uiTest as test, business } from "../../fixtures.ts";
-import { Unconfirmed } from "../../harness.ts";
-import { until } from "../../lifecycle.ts";
-import { salesFixture } from "../../fixture.ts";
-import { readResponseJson } from "../../response-body.ts";
-import { order, show } from "../../operations.ts";
+import { uiTest as test, business } from "../../support/fixtures.ts";
+import { Unconfirmed } from "../../support/harness.ts";
+import { until } from "../../support/polling.ts";
+import { salesFixture } from "../../upstream/fixtures.ts";
+import { readResponseJson } from "../../support/response-body.ts";
+import { order, show } from "../../support/operations.ts";
 import {
   hasObservedOverlap,
   type Attempt,
   type Observation,
 } from "../../../targets/sales/overlap.ts";
 import { syncDisplayMatches } from "../../../targets/sales/sync-display.ts";
-import { assertCondition } from "../../environment.ts";
-import { snapshotMysql } from "../../db.ts";
-import { batch, equal, verify } from "../../operations.ts";
+import { assertCondition } from "../../environment/state.ts";
+import { snapshotMysql } from "../../database/rows.ts";
+import { batch, equal, verify } from "../../support/operations.ts";
 
 test("CROSS-01 同期中UI・3000件全表示と独立DB観測", async ({
   uiHarness: h,
@@ -58,10 +58,10 @@ test("CROSS-01 同期中UI・3000件全表示と独立DB観測", async ({
     });
     try {
       await test.step("Given: 固定旧3000件同期後、新3000件を実応答確認", async () => {
-        await h.env.catalog("bulk1");
+        await h.env.upstream.useFixture("bulk1");
         await batch(h);
         await verify(h, "bulk1");
-        await h.env.catalog("bulk2");
+        await h.env.upstream.useFixture("bulk2");
       });
       await test.step("When: 実JobとUI参照・独立SELECTを同一単調時計で並行", async () => {
         const deadline = performance.now() + 12000;
@@ -88,7 +88,7 @@ test("CROSS-01 同期中UI・3000件全表示と独立DB観測", async ({
           (e) => e,
         );
         running = (async () => {
-          const result = await h.env.batch(12000);
+          const result = await h.env.batches.run(12000);
           if (result.outcome === "timeout")
             throw new Unconfirmed("BATCH_OBSERVATION_DEADLINE");
           assertCondition(result.outcome === "complete", "BULK_BATCH_FAILED");
@@ -209,7 +209,7 @@ test("CROSS-02 古いversionによる受注拒否", async ({ uiHarness: h }) => 
       await batch(h);
       await verify(h, "f1");
       await show(h);
-      await h.env.catalog("f2");
+      await h.env.upstream.useFixture("f2");
       await batch(h);
       await verify(h, "f2");
       before = await snapshotMysql(h.db);

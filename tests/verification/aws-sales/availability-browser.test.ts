@@ -3,7 +3,7 @@ import { strict as a } from "node:assert";
 import { createServer } from "node:http";
 import { chromium, type Browser } from "@playwright/test";
 import { page as html, script } from "../../../demo/sales/server.ts";
-import { readResponseJson } from "../../aws-sales/response-body.ts";
+import { readResponseJson } from "../../aws-sales/support/response-body.ts";
 
 test("Chromeで接続確認の実応答を取得・照合してから成功を表示する", async () => {
   let status = 200,

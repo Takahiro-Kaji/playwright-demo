@@ -5,8 +5,8 @@ import { readFileSync, writeFileSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import mysql from 'mysql2/promise';
 import { fixture } from '../../tests/verification/aws-sales/fixtures.ts';
-import { saveJournal, type Journal } from '../../tests/aws-sales/environment.ts';
-import { Environment } from '../../tests/aws-sales/lifecycle.ts';
+import { saveJournal, type Journal } from '../../tests/aws-sales/environment/state.ts';
+import { Environment } from '../../tests/aws-sales/environment/lifecycle.ts';
 import { withProbeDatabase } from './probe-database.ts';
 import { probeOrder } from './order-probe.ts';
 
@@ -37,8 +37,8 @@ test('SSO確認はTLS中継で専用ユーザー・スキーマを使い実デ�
     chmodSync(bin,0o700); process.env.PATH=f.dir; process.env.FAKE_MYSQL_SOCKET=socket;
     const create = (file: string, journal: Journal) => {
       const env = new Environment(file,journal);
-      env.verifyTarget = async () => {}; // ローカルではAWS・ALBの実環境を確認できない。
-      env.bridge = async () => ({}); // 模擬kubectlは通信経路のみを置き換える。
+      env.target.verifyUi = async () => {}; // ローカルではAWS・ALBの実環境を確認できない。
+      env.database.bridge = async () => ({}); // 模擬kubectlは通信経路のみを置き換える。
       return env;
     };
     const target = {target:j.config.url,expected:j.config.url,state:j.config.stateFile,selector:'#refresh',cognitoDomain:'test.auth.ap-northeast-1.amazoncognito.com'};

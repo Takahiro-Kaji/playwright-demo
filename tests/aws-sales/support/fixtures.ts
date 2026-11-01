@@ -1,6 +1,6 @@
 /** 実AWSと専用kind検証で同じspecを使用するためのfixture入口。 */
 import { test as awsTest, uiTest as awsUiTest } from "./harness.ts";
-import { createLocalHarnessTests } from "../../aws/tests/local-harness.ts";
+import { createLocalHarnessTests } from "../../../aws/tests/local-harness.ts";
 export { business } from "./harness.ts";
 
 // 各Playwright configで明示する。通常の入口は実AWS用fixture。

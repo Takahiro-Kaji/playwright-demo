@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import { strict as a } from "node:assert";
-import Reporter, { ids } from "../../aws-sales/reporter.ts";
+import Reporter, { ids } from "../../aws-sales/support/reporter.ts";
 
 test("部分実行・未確認・後処理失敗を全件成功にしない", async () => {
   for (const variant of ["partial", "unknown", "after-failed", "complete"]) {

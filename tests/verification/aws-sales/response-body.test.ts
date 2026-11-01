@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import { strict as a } from "node:assert";
-import { readResponseJson } from "../../aws-sales/response-body.ts";
+import { readResponseJson } from "../../aws-sales/support/response-body.ts";
 import type { Response } from "@playwright/test";
 
 const response = (

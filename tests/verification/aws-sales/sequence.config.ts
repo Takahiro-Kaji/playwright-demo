@@ -5,11 +5,11 @@ import { resolve } from "node:path";
 
 // 実際の入口設定とreporterを、プロセス内の模擬環境で検証する。
 const config = process.env.SEQUENCE_MODE === "local" ? local : aws;
-if (config.reporter !== "./reporter.ts")
+if (config.reporter !== "./support/reporter.ts")
   throw Error("ENTRYPOINT_REPORTER_MISMATCH");
 export default defineConfig(config, {
   testDir: ".",
   testMatch: "sequence.fixture.ts",
-  reporter: resolve("tests/aws-sales/reporter.ts"),
+  reporter: resolve("tests/aws-sales/support/reporter.ts"),
   timeout: 15000,
 });

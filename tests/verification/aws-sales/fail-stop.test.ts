@@ -10,7 +10,7 @@ import {
   rmSync,
 } from "node:fs";
 import { resolve, join } from "node:path";
-import { newJournal } from "../../aws-sales/environment.ts";
+import { newJournal } from "../../aws-sales/environment/state.ts";
 test("本文取得の期限切れと後処理失敗でも判定を保持し後続を止める", () => {
   mkdirSync(".local/aws-sales-qa", { recursive: true });
   const dir = mkdtempSync(resolve(".local/aws-sales-qa/fail-stop-"));

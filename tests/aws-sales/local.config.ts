@@ -7,7 +7,7 @@ export default defineConfig({
   maxFailures: 1,
   retries: 0,
   timeout: 360000,
-  reporter: process.argv.includes("--list") ? "list" : "./reporter.ts",
+  reporter: process.argv.includes("--list") ? "list" : "./support/reporter.ts",
   use: {
     channel: "chrome",
     headless: true,

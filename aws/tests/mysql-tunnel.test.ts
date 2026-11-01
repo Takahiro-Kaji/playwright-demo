@@ -7,7 +7,7 @@ import { mkdtempSync,writeFileSync,chmodSync,rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import mysql from 'mysql2/promise';
-import { createTunnelPool } from '../../tests/aws-sales/mysql-tunnel.ts';
+import { createTunnelPool } from '../../tests/aws-sales/database/mysql-tunnel.ts';
 const socket=process.env.TEST_MYSQL_SOCKET, ca=process.env.TEST_MYSQL_CA;
 if (!socket?.startsWith('/tmp/') || !ca?.startsWith('/tmp/')) throw Error('LOCAL_MYSQL_TLS_SETTINGS_REQUIRED');
 test('バイナリのexecトンネルでTLS接続先を検証してSQLを実行する',async()=>{

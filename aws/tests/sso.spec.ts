@@ -1,5 +1,5 @@
 import { test, expect, request } from '@playwright/test';
-import { awsSsoConfig } from '../../tests/aws-sales/config.ts';
+import { awsSsoConfig } from '../../tests/aws-sales/support/auth-config.ts';
 import { probeOrder } from './order-probe.ts';
 import { withProbeDatabase } from './probe-database.ts';
 

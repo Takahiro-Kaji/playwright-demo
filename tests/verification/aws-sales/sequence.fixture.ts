@@ -3,14 +3,15 @@ import {
   createHarnessTests,
   business,
   Unconfirmed,
-} from "../../aws-sales/harness.ts";
-import { Environment } from "../../aws-sales/lifecycle.ts";
-import { ids } from "../../aws-sales/reporter.ts";
+} from "../../aws-sales/support/harness.ts";
+import { Environment } from "../../aws-sales/environment/lifecycle.ts";
+import { ids } from "../../aws-sales/support/reporter.ts";
 
-class FakeEnvironment extends Environment {
-  async verifyBatchTarget() {}
-  async pool() {
-    return {
+const { test } = createHarnessTests((file, journal) => {
+  const env = new Environment(file, journal);
+  env.target.verifyBatch = async () => {};
+  env.database.pool = async () =>
+    ({
       getConnection: async () => ({
         query: async (sql: string) => [
           [
@@ -25,19 +26,16 @@ class FakeEnvironment extends Environment {
         destroy() {},
       }),
       end: async () => {},
-    } as any;
-  }
-  async dbOwner() {}
-  async catalog() {}
-  async reset() {}
-  async restore() {
-    if (process.env.SEQUENCE_CASE === "after" && this.j.results.length === 4)
+    }) as any;
+  env.database.verifyOwner = async () => {};
+  env.upstream.useFixture = async () => {};
+  env.database.reset = async () => {};
+  env.restore = async () => {
+    if (process.env.SEQUENCE_CASE === "after" && journal.results.length === 4)
       throw Error("INJECTED_RESTORE_FAILURE");
-  }
-}
-const { test } = createHarnessTests(
-  (file, journal) => new FakeEnvironment(file, journal),
-);
+  };
+  return env;
+});
 for (const id of ids) {
   test(`${id} sequence`, async ({ h }) => {
     appendFileSync(process.env.SEQUENCE_MARKER!, `${id}\n`);
