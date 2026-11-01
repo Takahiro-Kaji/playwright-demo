@@ -1,4 +1,4 @@
-// Explicit local-kind integration: real MySQL 8.4 and real Kubernetes Jobs.
+// ローカルkind用の結合検証。実際のMySQL 8.4とKubernetes Jobを使用する。
 import { test } from "node:test";
 import { strict as a } from "node:assert";
 import { loadJournal } from "../../tests/aws-sales/environment.ts";

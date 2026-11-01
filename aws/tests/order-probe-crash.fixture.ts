@@ -1,5 +1,5 @@
-// Child process used to verify persistent recovery state after actual SIGKILL.
-// All DB/AWS I/O is mocked; the journal and file lock are real.
+// 実際のSIGKILL後も要復旧の状態が保存されることを確認する子プロセス。
+// DB・AWSの入出力はすべて模擬する。復旧記録とファイルロックは実物を使用する。
 import { loadJournal } from '../../tests/aws-sales/environment.ts';
 import { Environment } from '../../tests/aws-sales/lifecycle.ts';
 import { withProbeDatabase } from './probe-database.ts';

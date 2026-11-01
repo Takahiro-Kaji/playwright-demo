@@ -23,7 +23,7 @@ async function snapshot(db: Connection) {
   return JSON.stringify({ orders, products, inventory, sync, lock, owner });
 }
 
-/** Dedicated row, with restoration even if a POST succeeds but its response is lost. */
+/** 専用行を使用し、POST成功後に応答を失った場合も復元する。 */
 export async function probeOrder(db: Connection, post: (code: string) => Promise<void>, makeCode = () => `sso-probe-${randomUUID()}`) {
   const code = makeCode();
   if (!/^sso-probe-[a-f0-9-]{36}$/.test(code)) throw Error('INVALID_PROBE_CODE');

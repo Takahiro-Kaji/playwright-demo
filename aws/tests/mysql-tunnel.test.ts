@@ -1,5 +1,5 @@
-// Uses a disposable local MySQL and a fake kubectl that forwards stdin/stdout
-// to its Unix socket. No Kubernetes or AWS access is performed by this test.
+// 使い捨てのローカルMySQLと、標準入出力をUnixソケットへ転送する模擬kubectlを使用する。
+// このテストではKubernetesやAWSへアクセスしない。
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
 import { randomBytes } from 'node:crypto';

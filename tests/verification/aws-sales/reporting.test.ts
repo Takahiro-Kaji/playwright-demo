@@ -24,3 +24,14 @@ test("部分実行・未確認・後処理失敗を全件成功にしない", as
     a.equal(reporter.results.size, variant === "partial" ? 1 : 7);
   }
 });
+
+test("runner failures and interruptions retain their original status", async () => {
+  for (const status of ["failed", "timedout", "interrupted"] as const) {
+    const reporter = new Reporter();
+    reporter.selected.add("CROSS-01");
+    a.equal(
+      await reporter.onEnd({ status, startTime: new Date(), duration: 1 }),
+      undefined,
+    );
+  }
+});

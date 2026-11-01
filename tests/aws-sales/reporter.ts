@@ -69,10 +69,11 @@ export default class AwsReporter implements Reporter {
       { flag: "wx", mode: 0o600 },
     );
     process.stdout.write(`AWS試験要約: ${path}\n`);
-    if (!selectedPassed || r.status !== "passed")
+    // Playwright自身の失敗・タイムアウト・中断の状態を維持する。
+    if (!selectedPassed && r.status === "passed")
       return { status: "failed" as const };
   }
-  // Framework exceptions and attachments can contain URLs or response bodies.
+  // フレームワークの例外や添付情報には、URLやレスポンス本文が含まれ得る。
   onError() {
     process.stderr.write("AWS_TEST_RUNNER_FAILED\n");
   }

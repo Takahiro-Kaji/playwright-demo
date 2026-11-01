@@ -7,7 +7,7 @@ import {
   loadJournal,
   localPath,
   saveJournal,
-  requireThat as check,
+  assertCondition,
 } from "../../tests/aws-sales/environment.ts";
 import { localEnvironment } from "./local-adapter.ts";
 import { cleanup } from "../../tests/aws-sales/cleanup.ts";
@@ -16,7 +16,7 @@ const file =
   ".local/aws-sales-qa/local-journal.json";
 async function main() {
   if (process.argv[2] === "prepare") {
-    check(!existsSync(file), "LOCAL_JOURNAL_EXISTS");
+    assertCondition(!existsSync(file), "LOCAL_JOURNAL_EXISTS");
     const j = newJournal(
       validateConfig({
         account: "123456789012",

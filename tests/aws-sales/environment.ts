@@ -72,52 +72,52 @@ export type CaseResult = {
   observations?: unknown;
   differences?: Record<string, number>;
 };
-export function requireThat(value: unknown, code: string): asserts value {
+export function assertCondition(value: unknown, code: string): asserts value {
   if (!value) throw Error(code);
 }
 export function localPath(path: string) {
   const root = resolve(".local") + sep,
     full = resolve(path);
-  requireThat(full.startsWith(root), "LOCAL_PATH_REQUIRED");
+  assertCondition(full.startsWith(root), "LOCAL_PATH_REQUIRED");
   mkdirSync(dirname(full), { recursive: true, mode: 0o700 });
-  requireThat(
+  assertCondition(
     realpathSync(dirname(full)) === realpathSync(".local") ||
       realpathSync(dirname(full)).startsWith(realpathSync(".local") + sep),
     "LOCAL_PATH_SYMLINK",
   );
   if (existsSync(full))
-    requireThat(
+    assertCondition(
       realpathSync(full).startsWith(realpathSync(".local") + sep),
       "LOCAL_FILE_SYMLINK",
     );
   return full;
 }
 export function validateConfig(c: Config): Config {
-  requireThat(
+  assertCondition(
     c &&
       /^\d{12}$/.test(c.account) &&
       ["ap-northeast-1", "ap-northeast-3"].includes(c.region),
     "AWS_IDENTITY_CONFIG_INVALID",
   );
   for (const v of [c.profile, c.context, c.cluster])
-    requireThat(
+    assertCondition(
       typeof v === "string" &&
         /^[a-zA-Z0-9_./:@-]+$/.test(v) &&
         !v.startsWith("-"),
       "TARGET_CONFIG_INVALID",
     );
-  requireThat(
+  assertCondition(
     /^[a-z0-9.-]+\.rds\.amazonaws\.com$/.test(c.dbHost),
     "DB_HOST_INVALID",
   );
-  requireThat(
+  assertCondition(
     new RegExp(
       `^${c.account}\\.dkr\\.ecr\\.${c.region}\\.amazonaws\\.com/[a-z0-9._/-]+:[a-zA-Z0-9._-]+$`,
     ).test(c.image),
     "IMAGE_INVALID",
   );
   const u = new URL(c.url);
-  requireThat(
+  assertCondition(
     u.protocol === "https:" &&
       u.pathname === "/" &&
       !u.port &&
@@ -127,24 +127,24 @@ export function validateConfig(c: Config): Config {
       !u.password,
     "UI_URL_INVALID",
   );
-  requireThat(
+  assertCondition(
     c.certificateArn.startsWith(
       `arn:aws:acm:${c.region}:${c.account}:certificate/`,
     ),
     "CERTIFICATE_INVALID",
   );
-  requireThat(
+  assertCondition(
     c.userPoolArn.startsWith(
       `arn:aws:cognito-idp:${c.region}:${c.account}:userpool/`,
     ),
     "USER_POOL_INVALID",
   );
-  requireThat(
+  assertCondition(
     /^[a-zA-Z0-9]+$/.test(c.userPoolClientId) &&
       /^[a-z0-9-]+$/.test(c.userPoolDomain),
     "COGNITO_INVALID",
   );
-  requireThat(
+  assertCondition(
     /^(?:\d{1,3}\.){3}\d{1,3}\/(?:[1-9]|[12]\d|3[0-2])$/.test(c.operatorCidr) &&
       c.operatorCidr
         .split("/")[0]
@@ -153,11 +153,11 @@ export function validateConfig(c: Config): Config {
     "CIDR_INVALID",
   );
   c.stateFile = localPath(c.stateFile);
-  requireThat(
+  assertCondition(
     c.stateFile.startsWith(resolve(".local/auth") + sep),
     "AUTH_STATE_PATH_INVALID",
   );
-  requireThat(Boolean(readFileSync(c.caFile).length), "DB_CA_REQUIRED");
+  assertCondition(Boolean(readFileSync(c.caFile).length), "DB_CA_REQUIRED");
   return c;
 }
 export function loadConfig(file: string): Config {
@@ -185,19 +185,19 @@ export function newJournal(config: Config): Journal {
   };
 }
 export function validateJournal(j: Journal) {
-  requireThat(
+  assertCondition(
     j.version === 1 &&
       /^[a-f0-9]{32}$/.test(j.runId) &&
       /^[a-f0-9]{48}$/.test(j.owner),
     "JOURNAL_INVALID",
   );
-  requireThat(
+  assertCondition(
     j.namespace === `sales-test-${j.runId}` &&
       j.database === `sales_test_${j.runId}` &&
       j.user === `st_${j.runId.slice(0, 24)}`,
     "JOURNAL_TARGET_INVALID",
   );
-  requireThat(
+  assertCondition(
     /^[a-f0-9]{64}$/.test(j.password) && /^[a-f0-9]{64}$/.test(j.mockToken),
     "JOURNAL_SECRET_INVALID",
   );
@@ -235,7 +235,7 @@ export type Command = (
   input?: string,
   timeout?: number,
 ) => Promise<string>;
-/** No shell, bounded output, and sanitized errors. Input/output may contain secrets. */
+/** シェルを使わず、出力量を制限してエラーの機密情報を除く。入出力には秘密情報が含まれ得る。 */
 export const command: Command = (binary, args, input, timeout = 15000) =>
   new Promise((ok, no) => {
     const p = spawn(binary, args, {
@@ -325,14 +325,14 @@ export class Cluster {
   async identity() {
     const c = this.j.config,
       who = await this.aws("sts", "get-caller-identity");
-    requireThat(who.Account === c.account, "AWS_ACCOUNT_MISMATCH");
+    assertCondition(who.Account === c.account, "AWS_ACCOUNT_MISMATCH");
     const { cluster } = await this.aws(
       "eks",
       "describe-cluster",
       "--name",
       c.cluster,
     );
-    requireThat(
+    assertCondition(
       cluster.arn ===
         `arn:aws:eks:${c.region}:${c.account}:cluster/${c.cluster}` &&
         cluster.status === "ACTIVE",
@@ -350,7 +350,7 @@ export class Cluster {
         "json",
       ]),
     );
-    requireThat(
+    assertCondition(
       cfg.clusters?.length === 1 &&
         cfg.clusters[0].cluster.server === cluster.endpoint &&
         cfg.clusters[0].cluster["certificate-authority-data"] ===
@@ -369,7 +369,7 @@ export class Cluster {
   }
   owned(object: any, kind: string, name: string) {
     const r = this.j.resources.find((r) => r.kind === kind && r.name === name);
-    requireThat(
+    assertCondition(
       r &&
         object?.metadata?.name === name &&
         object.metadata.labels?.["sales-run"] === this.j.runId &&
@@ -385,9 +385,9 @@ export class Cluster {
   async create(file: string, object: any) {
     const kind = object.kind,
       name = object.metadata.name;
-    requireThat(!(await this.get(kind, name)), "RESOURCE_ALREADY_EXISTS");
+    assertCondition(!(await this.get(kind, name)), "RESOURCE_ALREADY_EXISTS");
     this.j.resources.push({ kind, name });
-    saveJournal(file, this.j); // intent precedes possible response loss
+    saveJournal(file, this.j); // 応答を失う可能性に備え、操作予定を先に記録する
     try {
       await this.k(["create", "-f", "-"], object);
     } finally {
@@ -405,7 +405,7 @@ export class Cluster {
 export function unlockStale(file: string) {
   const path = localPath(file) + ".lock";
   const lock = JSON.parse(readFileSync(path, "utf8"));
-  requireThat(
+  assertCondition(
     lock.host === requireHost() && Number.isInteger(lock.pid) && lock.pid > 0,
     "LOCK_OWNER_UNKNOWN",
   );
@@ -415,7 +415,7 @@ export function unlockStale(file: string) {
   } catch (e: any) {
     gone = e.code === "ESRCH";
   }
-  requireThat(gone, "LOCK_OWNER_STILL_RUNNING");
+  assertCondition(gone, "LOCK_OWNER_STILL_RUNNING");
   unlinkSync(path);
 }
 

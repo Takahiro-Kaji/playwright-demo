@@ -1,8 +1,8 @@
 #!/bin/bash
 set +x
 set -euo pipefail
-# Run from the repository root with local mysqld, mysql, mysqladmin and openssl.
-# All credentials and keys are disposable, and the server listens only on loopback.
+# ローカルのmysqld・mysql・mysqladmin・opensslを用意し、リポジトリ直下から実行する。
+# 認証情報と鍵はすべて使い捨てとし、サーバーはループバックでのみ待ち受ける。
 mysql_bin=${MYSQL_BIN:-mysql}
 mysqladmin_bin=${MYSQLADMIN_BIN:-mysqladmin}
 mysqld_bin=${MYSQLD_BIN:-mysqld}

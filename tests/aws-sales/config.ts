@@ -1,6 +1,6 @@
 import { authSettings } from '../../test-support/auth/fixture.ts';
 
-/** The AWS suite requires an explicit HTTPS application origin and SSO state. */
+/** AWSテストには、明示的なHTTPSアプリ接続先とSSO認証状態が必要。 */
 export function awsSsoConfig(env: NodeJS.ProcessEnv = process.env) {
   const settings = authSettings(env);
   if (!settings) throw Error('AWS_SSO_AUTH_REQUIRED');
