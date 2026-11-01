@@ -5,8 +5,9 @@ import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import mysql from 'mysql2/promise';
 import { syncSales, orderSales } from '../sales/db.ts';
-import { acquireTestLock, releaseTestLock, compareMysql, snapshotMysql } from '../../tests/aws-sales/db.ts';
-import { salesFixture } from '../../tests/aws-sales/fixture.ts';
+import { acquireTestLock, releaseTestLock } from '../../tests/aws-sales/database/test-lock.ts';
+import { compareMysql, snapshotMysql } from '../../tests/aws-sales/database/rows.ts';
+import { salesFixture } from '../../tests/aws-sales/upstream/fixtures.ts';
 
 const socketPath = process.env.TEST_MYSQL_SOCKET;
 if (!socketPath || !socketPath.startsWith('/tmp/')) throw Error('TEST_MYSQL_LOCAL_SOCKET_REQUIRED');

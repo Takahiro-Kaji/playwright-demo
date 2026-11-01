@@ -1,7 +1,8 @@
-import { acquireTestLock, releaseTestLock } from "./db.ts";
+import { acquireTestLock, releaseTestLock } from "../database/test-lock.ts";
 import type { Pool } from "mysql2/promise";
-import { Environment, until } from "./lifecycle.ts";
-import { assertCondition, errorCodes } from "./environment.ts";
+import { Environment } from "./lifecycle.ts";
+import { until } from "../support/polling.ts";
+import { assertCondition, errorCodes } from "./state.ts";
 
 /** 記録済みの実行リソースのみ削除する。復旧が未完了なら名前空間を残す。 */
 export async function cleanup(
@@ -40,7 +41,7 @@ export async function cleanup(
   j.phase = "cleaning";
   env.save();
   await attempt(async () => {
-    await env.stopJobs();
+    await env.batches.stopAll();
     const jobs = JSON.parse(await cluster.k(["get", "jobs", "-o", "json"]));
     assertCondition(jobs.items.length === 0, "UNRECORDED_OR_RUNNING_JOB");
     const cron = await cluster.get("CronJob", "sales-batch");
@@ -91,8 +92,8 @@ export async function cleanup(
       delete dep.metadata.managedFields;
       delete dep.status;
       await cluster.k(["replace", "-f", "-"], dep);
-      await env.rollout("sales-upstream");
-      db = await env.pool();
+      await env.workloads.rollout("sales-upstream");
+      db = await env.database.pool();
       const lock = await acquireTestLock(db);
       try {
         await env.restore(db);
@@ -130,7 +131,7 @@ export async function cleanup(
   // 名前空間の削除前に、コントローラーが所有するALB・ターゲットグループを削除する必要がある。
   if (await cluster.get("Ingress", "sales-sso"))
     await attempt(async () => {
-      await env.deleteOwned("Ingress", "sales-sso", 300000);
+      await env.cluster.deleteOwned("Ingress", "sales-sso", 300000);
     });
   await attempt(async () => {
     await until(
@@ -177,74 +178,12 @@ export async function cleanup(
     (j.dbCreated || j.userCreated || j.dbIntent || j.userIntent)
   )
     await attempt(async () => {
-      const admin = await env.pool(true);
-      try {
-        if (j.dbCreated || j.dbIntent) {
-          const [schemas] = await admin.execute<any[]>(
-            "SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME=?",
-            [j.database],
-          );
-          if (!schemas.length) {
-            j.dbCreated = false;
-            j.dbOwned = false;
-            j.dbIntent = false;
-            env.save();
-          }
-        }
-        if (j.dbCreated || j.dbIntent) {
-          assertCondition(j.dbOwned, "DB_OWNER_MARKER_MISSING_MANUAL_REVIEW_REQUIRED");
-          const [owner] = await admin.query<any[]>(
-            `SELECT run_id,owner_token FROM \`${j.database}\`.aws_test_owner WHERE id=1`,
-          );
-          assertCondition(
-            owner.length === 1 &&
-              owner[0].run_id === j.runId &&
-              owner[0].owner_token === j.owner,
-            "DB_OWNERSHIP_MISMATCH",
-          );
-          // スキーマ削除前に、権限を制限したユーザーでセッションを切断する。
-          // アプリとJobの全Podが存在しないことは確認済み。この権限は通常ユーザーには付与しない。
-        }
-        if (j.userCreated || j.userIntent) {
-          const [users] = await admin.execute<any[]>(
-            "SELECT User,Host,JSON_UNQUOTE(JSON_EXTRACT(User_attributes,'$.metadata.salesOwner')) AS owner FROM mysql.user WHERE User=? AND Host='%'",
-            [j.user],
-          );
-          assertCondition(
-            users.length === 0 ||
-              (users.length === 1 && users[0].owner === j.owner),
-            "DB_USER_OWNERSHIP_MISMATCH",
-          );
-          if (users.length) await admin.query(`DROP USER '${j.user}'@'%'`);
-          const [remaining] = await admin.execute<any[]>(
-            "SELECT User FROM mysql.user WHERE User=? AND Host='%'",
-            [j.user],
-          );
-          assertCondition(remaining.length === 0, "DB_USER_DROP_UNCONFIRMED");
-          j.userCreated = false;
-          j.userIntent = false;
-          env.save();
-        }
-        if (j.dbCreated) {
-          await admin.query(`DROP DATABASE \`${j.database}\``);
-          const [remaining] = await admin.execute<any[]>(
-            "SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME=?",
-            [j.database],
-          );
-          assertCondition(remaining.length === 0, "DB_DROP_UNCONFIRMED");
-          j.dbCreated = false;
-          j.dbOwned = false;
-          j.dbIntent = false;
-          env.save();
-        }
-      } finally {
-        await admin.end();
-      }
+      await env.database.dropSchema();
     });
   if (!errors.length)
     await attempt(async () => {
       await auditNamespace(env);
-      await env.deleteOwned("Namespace", j.namespace, 180000);
+      await env.cluster.deleteOwned("Namespace", j.namespace, 180000);
     });
   if (errors.length) {
     j.blocked = true;

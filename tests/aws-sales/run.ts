@@ -5,14 +5,17 @@ import {
   assertCondition,
   errorCodes,
   saveJournal,
-} from "./environment.ts";
-import { Environment } from "./lifecycle.ts";
-import { cleanup } from "./cleanup.ts";
+} from "./environment/state.ts";
+import { Environment } from "./environment/lifecycle.ts";
+import { cleanup } from "./environment/cleanup.ts";
 
 /** 準備済みの実行環境と手動認証が必要。失敗時も実行環境を後片付けする。 */
 export async function runSuite(file: string, args: string[]) {
   const j = loadJournal(file);
-  assertCondition(j.phase === "prepared" && !j.blocked, "RUN_REQUIRES_RECOVERY");
+  assertCondition(
+    j.phase === "prepared" && !j.blocked,
+    "RUN_REQUIRES_RECOVERY",
+  );
   assertCondition(
     process.env.AWS_SALES_ADMIN_USER && process.env.AWS_SALES_ADMIN_PASSWORD,
     "ADMIN_CREDENTIALS_REQUIRED_FOR_FINAL_CLEANUP",

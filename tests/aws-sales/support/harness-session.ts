@@ -1,6 +1,6 @@
 import type { BrowserContext, Page, TestInfo } from "@playwright/test";
 import type { Pool, PoolConnection } from "mysql2/promise";
-import { Environment } from "./lifecycle.ts";
+import { Environment } from "../environment/lifecycle.ts";
 import {
   assertCondition,
   loadJournal,
@@ -8,8 +8,12 @@ import {
   errorCodes,
   type CaseResult,
   type Journal,
-} from "./environment.ts";
-import { acquireTestLock, releaseTestLock, verifyTestLock } from "./db.ts";
+} from "../environment/state.ts";
+import {
+  acquireTestLock,
+  releaseTestLock,
+  verifyTestLock,
+} from "../database/test-lock.ts";
 import type { BaseHarness } from "./harness.ts";
 
 export type EnvironmentFactory = (
@@ -52,10 +56,10 @@ export class HarnessSession {
 
   async prepare(): Promise<BaseHarness> {
     this.context = this.uiSession?.context;
-    if (this.uiSession) await this.env!.verifyTarget();
-    else await this.env!.verifyBatchTarget();
-    this.db = await this.env!.pool();
-    await this.env!.dbOwner(this.db);
+    if (this.uiSession) await this.env!.target.verifyUi();
+    else await this.env!.target.verifyBatch();
+    this.db = await this.env!.database.pool();
+    await this.env!.database.verifyOwner(this.db);
     this.lock = await acquireTestLock(this.db);
     await verifyTestLock(this.lock);
     this.safe = true;
@@ -69,8 +73,8 @@ export class HarnessSession {
       codes: [],
       afterActions: [],
     };
-    await this.env!.catalog("f1");
-    await this.env!.reset(this.db);
+    await this.env!.upstream.useFixture("f1");
+    await this.env!.database.reset(this.db);
     return this.h;
   }
 
@@ -118,7 +122,7 @@ export class HarnessSession {
       }
     if (this.safe && !canRestore && this.env)
       try {
-        await this.env.stopJobs();
+        await this.env.batches.stopAll();
       } catch (e) {
         this.errors.push(e);
       }

@@ -52,7 +52,7 @@ npm run aws-sales:sso
 
 手動認証と再利用の検証は次の順で行う。Given: 保存状態なし、When: 上記 `sales:auth:setup` で Chrome を開き手動ログイン、Then: 指定画面を確認して保存し、別 context と Chrome 終了・再起動後の context の両方で同画面を確認する。After: 各 context と Chrome を閉じる。状態は `.local/` 内に保存され mode 600、ディレクトリ作成時 mode 700。試験終了後にローカルの状態ファイルを削除する。状態なしの別 context の再認証は AWS 試験の未認証 UI ケースで確認する。
 
-未認証受注テストは `AWS_SSO_JOURNAL` を必須とする。`manage prepare` で作成したprepared・未blockedのjournalを指定する。従来の `AWS_SSO_DB_*` は使用せず、journalの実行専用DB名・専用ユーザー・CAを使用する。AWS identity/context、namespace/PodのラベルとUID、Secret/CA、DNS→ALB→Ingress→Service→アプリPod→DB設定を既存 `verifyTarget()` で照合する。さらに実際に試験する同一MySQLセッションでDB名・実効ユーザー・DB所有マーカーを確認する。private RDSには所有確認済みbridge Podと非TTY `kubectl exec -i` で中継し、ローカルmysql2でCA・RDSホスト名を検証する。公開RDS、TLS無効化、管理ユーザー、通常/shared DBへのフォールバックはない。
+未認証受注テストは `AWS_SSO_JOURNAL` を必須とする。`manage prepare` で作成したprepared・未blockedのjournalを指定する。従来の `AWS_SSO_DB_*` は使用せず、journalの実行専用DB名・専用ユーザー・CAを使用する。AWS identity/context、namespace/PodのラベルとUID、Secret/CA、DNS→ALB→Ingress→Service→アプリPod→DB設定を既存 `target.verifyUi()` で照合する。さらに実際に試験する同一MySQLセッションでDB名・実効ユーザー・DB所有マーカーを確認する。private RDSには所有確認済みbridge Podと非TTY `kubectl exec -i` で中継し、ローカルmysql2でCA・RDSホスト名を検証する。公開RDS、TLS無効化、管理ユーザー、通常/shared DBへのフォールバックはない。
 
 journalの排他と既存業務試験と共通のDB advisory lockをAfter完了まで保持する。接続・権限・所有不一致は失敗となり、秘密を含まないエラーコードだけを報告する。DB接続確認を含む操作の前に `blocked=true / phase=recovery-required` を保存し、試験・復元・ロック解放・接続終了のすべてが正常完了した場合だけ `prepared / blocked=false` に戻す。強制終了や失敗時はエラー名に関係なく復旧必要状態を保持する。排他ファイルのunlockだけでは再実行できないため、[recover/cleanup手順](../tests/aws-sales/README.md)で復旧する。同じjournalを別worktreeへコピーして並行実行しない。回復時も当該journalの所有確認済み専用DBのみを対象にする。テスト前後に次の全行とsync_state・sales_lock・aws_test_ownerを比較する。結果や認証情報をログに出さない。
 

@@ -1,14 +1,18 @@
 /** ケース共通の操作・照合。ケース本体は scenarios/ 配下。 */
 import type { BaseHarness, Harness } from "./harness.ts";
 import { readResponseJson } from "./response-body.ts";
-import { assertCondition } from "./environment.ts";
-import { expectedFixture, until } from "./lifecycle.ts";
-import { compareMysql } from "./db.ts";
+import { assertCondition } from "../environment/state.ts";
+import { expectedFixture } from "../upstream/fixtures.ts";
+import { until } from "./polling.ts";
+import { compareMysql } from "../database/rows.ts";
 
 export const equal = (a: unknown, b: unknown, code: string) =>
   assertCondition(JSON.stringify(a) === JSON.stringify(b), code);
 export async function batch(h: BaseHarness) {
-  assertCondition((await h.env.batch()).outcome === "complete", "BATCH_NOT_COMPLETE");
+  assertCondition(
+    (await h.env.batches.run()).outcome === "complete",
+    "BATCH_NOT_COMPLETE",
+  );
 }
 export async function compare(
   h: BaseHarness,

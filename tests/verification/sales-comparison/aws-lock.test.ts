@@ -1,11 +1,7 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import type { Pool, PoolConnection } from "mysql2/promise";
-import {
-  acquireTestLock,
-  releaseTestLock,
-  verifyTestLock,
-} from "../../aws-sales/db.ts";
+import { acquireTestLock, releaseTestLock, verifyTestLock } from "../../aws-sales/database/test-lock.ts";
 
 function fake(query: () => Promise<unknown>) {
   const calls: string[] = [];

@@ -2,8 +2,8 @@ import { test } from "node:test";
 import { strict as a } from "node:assert";
 import type { TestInfo } from "@playwright/test";
 import { readFileSync, writeFileSync } from "node:fs";
-import { HarnessSession } from "../../aws-sales/harness-session.ts";
-import { Environment } from "../../aws-sales/lifecycle.ts";
+import { HarnessSession } from "../../aws-sales/support/harness-session.ts";
+import { Environment } from "../../aws-sales/environment/lifecycle.ts";
 import { fixture } from "./fixtures.ts";
 
 for (const failure of ["reset", "lost-lock", "restore"]) {
@@ -26,33 +26,30 @@ for (const failure of ["reset", "lost-lock", "restore"]) {
         calls.push("destroy");
       },
     };
-    class FakeEnvironment extends Environment {
-      async verifyBatchTarget() {}
-      async pool() {
-        return {
+    const session = new HarnessSession(f.file, (file, j) => {
+      const env = new Environment(file, j);
+      env.target.verifyBatch = async () => {};
+      env.database.pool = async () =>
+        ({
           getConnection: async () => connection,
           end: async () => {
             calls.push("end");
           },
-        } as any;
-      }
-      async dbOwner() {}
-      async catalog() {}
-      async reset() {
+        }) as any;
+      env.database.verifyOwner = async () => {};
+      env.upstream.useFixture = async () => {};
+      env.database.reset = async () => {
         if (failure === "reset") throw Error("RESET_FAILED");
-      }
-      async restore() {
+      };
+      env.restore = async () => {
         calls.push("restore");
         if (failure === "restore") throw Error("RESTORE_FAILED");
-      }
-      async stopJobs() {
+      };
+      env.batches.stopAll = async () => {
         calls.push("stopJobs");
-      }
-    }
-    const session = new HarnessSession(
-      f.file,
-      (file, j) => new FakeEnvironment(file, j),
-    );
+      };
+      return env;
+    });
     const info = {
       title: "BATCH-01 recovery",
       annotations: [],

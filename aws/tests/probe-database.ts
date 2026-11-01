@@ -1,9 +1,9 @@
 import type { Connection, Pool, PoolConnection } from 'mysql2/promise';
 import { resolve } from 'node:path';
-import { exclusive, loadJournal, saveJournal, assertCondition, errorCodes, type Journal } from '../../tests/aws-sales/environment.ts';
-import { Environment } from '../../tests/aws-sales/lifecycle.ts';
-import { acquireTestLock, releaseTestLock } from '../../tests/aws-sales/db.ts';
-import type { awsSsoConfig } from '../../tests/aws-sales/config.ts';
+import { exclusive, loadJournal, saveJournal, assertCondition, errorCodes, type Journal } from '../../tests/aws-sales/environment/state.ts';
+import { Environment } from '../../tests/aws-sales/environment/lifecycle.ts';
+import { acquireTestLock, releaseTestLock } from '../../tests/aws-sales/database/test-lock.ts';
+import type { awsSsoConfig } from '../../tests/aws-sales/support/auth-config.ts';
 
 type Target = ReturnType<typeof awsSsoConfig>;
 
@@ -39,8 +39,8 @@ export async function withProbeDatabase(
     recoveryStarted = true;
     const env = create(file, j);
     // AWS・接続コンテキストの識別情報、所有するPod・Secret・CA、UI→ALB→アプリ→DBの経路を確認する。
-    await env.verifyTarget();
-    pool = await env.pool();
+    await env.target.verifyUi();
+    pool = await env.database.pool();
     connection = await acquireTestLock(pool);
     await connection.query({ sql: 'SET SESSION innodb_lock_wait_timeout = 10', timeout: 10_000 });
     const [rows] = await connection.query<any[]>({ sql: 'SELECT DATABASE() AS db, CURRENT_USER() AS principal', timeout: 10_000 });

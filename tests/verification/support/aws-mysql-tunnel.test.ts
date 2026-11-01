@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { validateTunnelSettings } from '../../aws-sales/mysql-tunnel.ts';
+import { validateTunnelSettings } from '../../aws-sales/database/mysql-tunnel.ts';
 const good={runId:'0123456789abcdef0123456789abcdef',context:'eks-tokyo',pod:'sales-app-123abc-abc12',dbHost:'database.region.rds.amazonaws.com',dbUser:'tester',dbPassword:'test',caFile:'/tmp/test-ca.pem'};
 test('非公開RDSのトンネルは安全でない対象や設定不足を拒否する',()=>{
   assert.doesNotThrow(()=>validateTunnelSettings(good));
@@ -12,7 +12,7 @@ test('execの失敗をDB接続失敗として報告する', async () => {
   const {mkdtempSync,writeFileSync,chmodSync,rmSync}=await import('node:fs');
   const {tmpdir}=await import('node:os');
   const {join}=await import('node:path');
-  const {createTunnelPool}=await import('../../aws-sales/mysql-tunnel.ts');
+  const {createTunnelPool}=await import('../../aws-sales/database/mysql-tunnel.ts');
   const dir=mkdtempSync(join(tmpdir(),'sales-tunnel-'));
   const originalPath=process.env.PATH;
   const executable=join(dir,'kubectl');
@@ -34,7 +34,7 @@ test('kubectlの欠落をDB接続失敗として報告する', async () => {
   const {mkdtempSync,writeFileSync,rmSync}=await import('node:fs');
   const {tmpdir}=await import('node:os');
   const {join}=await import('node:path');
-  const {createTunnelPool}=await import('../../aws-sales/mysql-tunnel.ts');
+  const {createTunnelPool}=await import('../../aws-sales/database/mysql-tunnel.ts');
   const dir=mkdtempSync(join(tmpdir(),'sales-tunnel-'));
   const originalPath=process.env.PATH;
   try {

@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import { strict as a } from "node:assert";
 import { fixture } from "./fixtures.ts";
-import { Environment } from "../../aws-sales/lifecycle.ts";
-import { cleanup } from "../../aws-sales/cleanup.ts";
+import { Environment } from "../../aws-sales/environment/lifecycle.ts";
+import { cleanup } from "../../aws-sales/environment/cleanup.ts";
 for (const mode of [
   "app-failure",
   "pod-timeout",
@@ -25,7 +25,7 @@ for (const mode of [
           : undefined;
     env.cluster.verify = async () => structuredClone(dep);
     env.cluster.owned = (o) => o;
-    env.stopJobs = async () => {
+    env.batches.stopAll = async () => {
       a.equal(f.j.blocked, true);
       a.equal(f.j.phase, "cleaning");
       calls.push("stop-jobs");
@@ -49,8 +49,8 @@ for (const mode of [
       op === "describe-load-balancers"
         ? { LoadBalancers: [] }
         : { TargetGroups: [] };
-    env.rollout = async () => {};
-    env.pool = async () => {
+    env.workloads.rollout = async () => {};
+    env.database.pool = async () => {
       calls.push("pool");
       return {
         getConnection: async () => ({
@@ -68,10 +68,10 @@ for (const mode of [
     env.restore = async () => {
       calls.push("restore");
     };
-    env.reset = async () => {
+    env.database.reset = async () => {
       calls.push("reset");
     };
-    env.deleteOwned = async () => {
+    env.cluster.deleteOwned = async () => {
       calls.push("delete");
     };
     try {

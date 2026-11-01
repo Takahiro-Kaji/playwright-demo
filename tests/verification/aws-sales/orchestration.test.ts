@@ -3,16 +3,12 @@ import { test } from "node:test";
 import { strict as a } from "node:assert";
 import { mkdtempSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 import { resolve, join } from "node:path";
-import {
-  newJournal,
-  Cluster,
-  validateConfig,
-  validateJournal,
-  type Config,
-  type Command,
-} from "../../aws-sales/environment.ts";
-import { manifests } from "../../aws-sales/resources.ts";
-import { Environment, checkEnv, until } from "../../aws-sales/lifecycle.ts";
+import { newJournal, validateConfig, validateJournal, type Config } from "../../aws-sales/environment/state.ts";
+import { Cluster, type Command } from "../../aws-sales/environment/cluster.ts";
+import { manifests } from "../../aws-sales/environment/resources.ts";
+import { Environment } from "../../aws-sales/environment/lifecycle.ts";
+import { checkEnv } from "../../aws-sales/environment/workloads.ts";
+import { until } from "../../aws-sales/support/polling.ts";
 import { mkdirSync } from "node:fs";
 
 test("対象が変わったら設定と復旧記録の検証で処理を止める", () => {
@@ -108,12 +104,12 @@ test("Jobの停止失敗で後続を止め元の処理失敗を保持する", as
   env.cluster.create = async () => {
     throw Error("start response lost");
   };
-  env.deleteOwned = async () => {
+  env.cluster.deleteOwned = async () => {
     throw Error("stop failed");
   };
   try {
     await a.rejects(
-      env.batch(),
+      env.batches.run(),
       (e: any) => e instanceof AggregateError && e.errors.length === 2,
     );
     a.equal(f.j.blocked, true);
@@ -125,13 +121,13 @@ test("上流の復元を試みても書き込み処理の停止が不明ならDB
   const f = fixture();
   const env = new Environment(f.file, f.j);
   const called: string[] = [];
-  env.stopJobs = async () => {
+  env.batches.stopAll = async () => {
     throw Error("unknown writer");
   };
-  env.catalog = async () => {
+  env.upstream.useFixture = async () => {
     called.push("catalog");
   };
-  env.reset = async () => {
+  env.database.reset = async () => {
     called.push("reset");
   };
   try {
@@ -146,12 +142,12 @@ test("モック管理応答と実際のHTTP状態を別々に検証する", asyn
   const f = fixture();
   const env = new Environment(f.file, f.j);
   try {
-    env.execUpstream = async () => JSON.stringify({ status: 503 });
-    a.equal(await env.mockStatus(503), 503);
-    await a.rejects(env.mockStatus(200));
-    env.execUpstream = async () =>
+    env.upstream.execute = async () => JSON.stringify({ status: 503 });
+    a.equal(await env.upstream.mockStatus(503), 503);
+    await a.rejects(env.upstream.mockStatus(200));
+    env.upstream.execute = async () =>
       JSON.stringify({ status: 200, hash: "incorrect" });
-    await a.rejects(env.catalogMatches("f1"));
+    await a.rejects(env.upstream.verifyFixture("f1"));
   } finally {
     f.close();
   }
@@ -175,11 +171,11 @@ test("通常URLが別のALB配下のPodに届いたら対象照合で拒否す�
   env.cluster.identity = async () => ({
     resourcesVpcConfig: { vpcId: "vpc-1" },
   });
-  env.bridge = async () => ({});
-  env.pod = async () => p;
+  env.database.bridge = async () => ({});
+  env.workloads.pod = async () => p;
   let correct = false;
-  env.pool = async () => ({ end: async () => {} }) as any;
-  env.dbOwner = async () => {};
+  env.database.pool = async () => ({ end: async () => {} }) as any;
+  env.database.verifyOwner = async () => {};
   env.cluster.verify = async (kind, name) =>
     kind === "Service"
       ? m.service
@@ -274,11 +270,11 @@ test("通常URLが別のALB配下のPodに届いたら対象照合で拒否す�
     };
   };
   try {
-    await a.rejects(env.verifyTarget(false), /ALB_TARGET_MISMATCH/);
+    await a.rejects(env.target.verifyUi(false), /ALB_TARGET_MISMATCH/);
     correct = true;
-    await env.verifyTarget(false);
+    await env.target.verifyUi(false);
     m.ingress.spec.rules[0].host = "regular.example.com";
-    await a.rejects(env.verifyTarget(false), /INGRESS_TARGET_MISMATCH/);
+    await a.rejects(env.target.verifyUi(false), /INGRESS_TARGET_MISMATCH/);
   } finally {
     f.close();
   }

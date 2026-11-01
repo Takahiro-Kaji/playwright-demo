@@ -1,22 +1,18 @@
 // ローカルkind用の結合検証。実際のMySQL 8.4とKubernetes Jobを使用する。
 import { test } from "node:test";
 import { strict as a } from "node:assert";
-import { loadJournal } from "../../tests/aws-sales/environment.ts";
+import { loadJournal } from "../../tests/aws-sales/environment/state.ts";
 import { localEnvironment } from "./local-adapter.ts";
-import { expectedFixture } from "../../tests/aws-sales/lifecycle.ts";
-import {
-  acquireTestLock,
-  releaseTestLock,
-  compareMysql,
-  snapshotMysql,
-} from "../../tests/aws-sales/db.ts";
+import { expectedFixture } from "../../tests/aws-sales/upstream/fixtures.ts";
+import { acquireTestLock, releaseTestLock } from "../../tests/aws-sales/database/test-lock.ts";
+import { compareMysql, snapshotMysql } from "../../tests/aws-sales/database/rows.ts";
 const file =
   process.env.AWS_SALES_LOCAL_JOURNAL ||
   ".local/aws-sales-qa/local-journal.json";
 test("実SQLの故障・権限制限・復元・実Jobの期限切れ停止を確認する", async () => {
   const j = loadJournal(file),
     env = localEnvironment(file, j),
-    db = await env.pool(),
+    db = await env.database.pool(),
     lock = await acquireTestLock(db);
   try {
     await env.restore(db);
@@ -88,7 +84,7 @@ test("実SQLの故障・権限制限・復元・実Jobの期限切れ停止を�
     a.deepEqual(await snapshotMysql(db), before);
     await a.rejects(db.query("SELECT * FROM mysql.user"));
     await a.rejects(db.query("DELETE FROM aws_test_owner"));
-    a.equal((await env.batch(1)).outcome, "timeout");
+    a.equal((await env.batches.run(1)).outcome, "timeout");
   } finally {
     try {
       await env.restore(db);

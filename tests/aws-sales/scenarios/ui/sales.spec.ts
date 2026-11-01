@@ -1,10 +1,10 @@
 /** UI正常・外部IF障害の2ケース。共通の準備・Afterは harness.ts。 */
-import { uiTest as test, business } from "../../fixtures.ts";
-import { expectedFixture } from "../../lifecycle.ts";
-import { availability, compare, order, show } from "../../operations.ts";
-import { assertCondition } from "../../environment.ts";
-import { snapshotMysql } from "../../db.ts";
-import { batch, equal, verify } from "../../operations.ts";
+import { uiTest as test, business } from "../../support/fixtures.ts";
+import { expectedFixture } from "../../upstream/fixtures.ts";
+import { availability, compare, order, show } from "../../support/operations.ts";
+import { assertCondition } from "../../environment/state.ts";
+import { snapshotMysql } from "../../database/rows.ts";
+import { batch, equal, verify } from "../../support/operations.ts";
 
 test("UI-01 UI正常・学習用通常HTTP IFと受注", async ({ uiHarness: h }) => {
   await business(h, async () => {
@@ -72,19 +72,19 @@ test("UI-02 UIモック503・DB不変", async ({ uiHarness: h }) => {
     let before: unknown,
       old = 200;
     await test.step("Given: データセット1同期とモック503実応答", async () => {
-      await h.env.catalog("f1", "mock");
+      await h.env.upstream.useFixture("f1", "mock");
       await batch(h);
       await verify(h, "f1");
       before = await snapshotMysql(h.db);
-      old = await h.env.mockStatus();
+      old = await h.env.upstream.mockStatus();
       h.afterActions.push(() =>
         test.step("After: モック元値と業務HTTP応答を復元", async () => {
-          await h.env.mockStatus(old);
-          await h.env.catalogMatches("f1", old);
+          await h.env.upstream.mockStatus(old);
+          await h.env.upstream.verifyFixture("f1", old);
         }),
       );
-      await h.env.mockStatus(503);
-      await h.env.catalogMatches("f1", 503);
+      await h.env.upstream.mockStatus(503);
+      await h.env.upstream.verifyFixture("f1", 503);
     });
     {
       await test.step("When: 画面から外部接続確認", () =>

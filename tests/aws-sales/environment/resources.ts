@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
-import type { Journal } from "./environment.ts";
-import { salesFixture } from "./fixture.ts";
+import type { Journal } from "./state.ts";
+import { salesFixture } from "../upstream/fixtures.ts";
 
 export function manifests(j: Journal) {
   const c = j.config,

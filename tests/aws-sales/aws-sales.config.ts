@@ -8,7 +8,7 @@ export default defineConfig({
   retries: 0,
   fullyParallel: false,
   timeout: 360000,
-  reporter: process.argv.includes("--list") ? "list" : "./reporter.ts",
+  reporter: process.argv.includes("--list") ? "list" : "./support/reporter.ts",
   use: {
     browserName: "chromium",
     channel: "chrome",

@@ -1,14 +1,17 @@
 // Proves the production batch fixture does not ask Playwright for a browser.
-import { test as batchTest, business } from "../../aws-sales/harness.ts";
-import { Environment } from "../../aws-sales/lifecycle.ts";
+import { test as batchTest, business } from "../../aws-sales/support/harness.ts";
+import { TargetVerifier } from "../../aws-sales/environment/target-verifier.ts";
+import { SalesDatabase } from "../../aws-sales/database/database.ts";
+import { UpstreamCatalog } from "../../aws-sales/upstream/catalog.ts";
+import { Environment } from "../../aws-sales/environment/lifecycle.ts";
 import { writeFileSync } from "node:fs";
-Environment.prototype.verifyBatchTarget = async () => {
+TargetVerifier.prototype.verifyBatch = async () => {
   writeFileSync(process.env.TARGET_MARKER!, "verified");
 };
-Environment.prototype.verifyTarget = async () => {
+TargetVerifier.prototype.verifyUi = async () => {
   throw Error("UI_TARGET_MUST_NOT_BE_USED");
 };
-Environment.prototype.pool = async () =>
+SalesDatabase.prototype.pool = async () =>
   ({
     getConnection: async () => ({
       query: async (sql: string) => [
@@ -25,9 +28,9 @@ Environment.prototype.pool = async () =>
     }),
     end: async () => {},
   }) as any;
-Environment.prototype.dbOwner = async () => {};
-Environment.prototype.catalog = async () => {};
-Environment.prototype.reset = async () => {};
+SalesDatabase.prototype.verifyOwner = async () => {};
+UpstreamCatalog.prototype.useFixture = async () => {};
+SalesDatabase.prototype.reset = async () => {};
 Environment.prototype.restore = async () => {};
 const test = batchTest.extend({
   browser: async ({}, use) => {

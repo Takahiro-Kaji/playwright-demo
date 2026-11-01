@@ -1,6 +1,6 @@
 # AWS業務試験の実装状況
 
-7ケースは `scenarios/{ui,batch,cross-feature}/sales.spec.ts` → `operations.ts` / `harness.ts` / `harness-session.ts` / `lifecycle.ts` へ接続済み。準備、対象・所有確認、専用DB/ユーザー、実Job、モック実応答、全件比較、復元、実行結果、専用環境回収を実装した。実行方法と関数対応は [README](README.md) を参照。
+7ケースは `scenarios/{ui,batch,cross-feature}/sales.spec.ts` → `support/operations.ts` / `support/harness.ts` / `support/harness-session.ts` / `environment/lifecycle.ts` へ接続済み。準備、対象・所有確認、専用DB/ユーザー、実Job、モック実応答、全件比較、復元、実行結果、専用環境回収を実装した。実行方法と関数対応は [README](README.md) を参照。
 
 実AWSは未検証。ローカルkind/MySQLによる検証はCognito/ALB/DNS/AWS identityを模擬するため、その範囲を実AWS受入と読み替えない。SQL専用・TLS・中継テストもそれぞれ独立した検証。
 
@@ -25,7 +25,7 @@ PR #8は取り込み済みで、今回cleanupは専用namespaceのIngress/ALB/DB
 ## レビュー指摘3件の修正と再検証
 
 - `cleanup.ts` は `cleanupStops` でアプリとJob/CronJobの停止を別々に記録する。どちらか未確認ならDB接続・復元・初期化・削除に進まず、`recovery-required` / blockedとして所有リソースを保持する。既存の失敗コードも保持する。停止原因を解消後、同じjournalで `cleanup` を再実行する。
-- `batch-result.ts` / `lifecycle.ts` は削除前にJob UID、Podの所有参照、batchコンテナの実行・終了状態を確認する。正常完了、期待異常終了、想定外失敗、timeout、未確認を区別する。BATCH-02は503実応答の前後確認、実行済み・exit 1/Error・既存の固定エラーマーカー・停止確認・DB不変を要求する。OOM、強制終了、起動失敗、状態取得失敗をPASSにしない。マーカーは通信内部の原因を一意に証明するものではない（詳細はREADME）。ログ全文は記録しない。
+- `batch/result.ts` / `batch/runner.ts` は削除前にJob UID、Podの所有参照、batchコンテナの実行・終了状態を確認する。正常完了、期待異常終了、想定外失敗、timeout、未確認を区別する。BATCH-02は503実応答の前後確認、実行済み・exit 1/Error・既存の固定エラーマーカー・停止確認・DB不変を要求する。OOM、強制終了、起動失敗、状態取得失敗をPASSにしない。マーカーは通信内部の原因を一意に証明するものではない（詳細はREADME）。ログ全文は記録しない。
 - `harness.ts` は共通 `BaseHarness` とUI専用 `uiSession` / `uiHarness` を分離する。BATCH-01/02はChrome・storageState・手動SSOなしで共通所有確認を行う。UIケースは従来の認証確認を維持する。個別バッチの事前チェックは `check-batch`。
 
 今回の検証（模擬と実物を区別）：
@@ -40,7 +40,7 @@ PR #8は取り込み済みで、今回cleanupは専用namespaceのIngress/ALB/DB
 
 ## Issue #11: SSO未認証受注と専用DBの接続
 
-- `AWS_SSO_JOURNAL` 必須。preparedかつ所有確認済みの実行専用DB・専用ユーザーを使い、既存 `verifyTarget()` と同一試験セッションのDB名/実効ユーザー/所有マーカーを照合する。bridge Podからの非TTY exec中継とCA/ホスト名検証を維持し、通常DB・管理者・直接TCPへのフォールバックは廃止。
+- `AWS_SSO_JOURNAL` 必須。preparedかつ所有確認済みの実行専用DB・専用ユーザーを使い、`target.verifyUi()` と同一試験セッションのDB名/実効ユーザー/所有マーカーを照合する。bridge Podからの非TTY exec中継とCA/ホスト名検証を維持し、通常DB・管理者・直接TCPへのフォールバックは廃止。
 - 専用商品の挿入、未認証HTTPのCognito 302判定、想定外受注も含む削除、全業務表・ロック行・所有マーカーの前後比較を行う。journal排他とDB advisory lockをAfter終了まで保持し、DB接続確認前に `recovery-required / blocked=true` を保存し、試験・復元・ロック解放・接続終了がすべて正常完了した場合だけ解除する。強制終了・任意の失敗は復旧必要状態を保持し、エラー名の文字列判定は使用しない。
 - `sales:check` 成功、`aws-sales:verify` 60件成功。ローカルMySQL 9.2.0の破棄可能な専用環境で `mysql-tls.test.sh` も成功。実SQLによるTLS付きexec中継・専用ユーザー/DB・復元・想定外受注・同期差分・権限不足・ホスト名不一致を確認した。ローカル試験のAWS/ALB確認は模擬。
 - 今回の変更について実AWS（private RDS MySQL 8.4 / Cognito）での受入は未実施。上記の成功を実AWSの302・前後DB一致の確認として扱わない。

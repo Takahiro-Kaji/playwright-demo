@@ -1,10 +1,6 @@
 import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { resolve, join } from "node:path";
-import {
-  newJournal,
-  validateConfig,
-  type Config,
-} from "../../aws-sales/environment.ts";
+import { newJournal, validateConfig, type Config } from "../../aws-sales/environment/state.ts";
 export function fixture() {
   mkdirSync(".local/aws-sales-qa", { recursive: true });
   const dir = mkdtempSync(resolve(".local/aws-sales-qa/run-"));

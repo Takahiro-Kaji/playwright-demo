@@ -1,4 +1,4 @@
-import { acquireTestLock, releaseTestLock } from "./db.ts";
+import { acquireTestLock, releaseTestLock } from "./database/test-lock.ts";
 import { existsSync, writeFileSync } from "node:fs";
 import {
   loadConfig,
@@ -11,9 +11,9 @@ import {
   unlockStale,
   errorCodes,
   type Journal,
-} from "./environment.ts";
-import { Environment } from "./lifecycle.ts";
-import { cleanup } from "./cleanup.ts";
+} from "./environment/state.ts";
+import { Environment } from "./environment/lifecycle.ts";
+import { cleanup } from "./environment/cleanup.ts";
 
 /** 準備・確認・復旧・削除の操作。テスト検出時には呼び出さない。 */
 export async function manage(
@@ -90,7 +90,7 @@ export async function manage(
         }),
       );
     } else if (action === "auth") {
-      await env.verifyTarget();
+      await env.target.verifyUi();
       assertCondition(process.stdin.isTTY, "INTERACTIVE_TERMINAL_REQUIRED");
       const { setupAuth } = await import("../../test-support/auth/setup.ts");
       await setupAuth(
@@ -99,25 +99,25 @@ export async function manage(
         j.config.url,
         "#refresh",
       );
-    } else if (action === "check") await env.verifyTarget();
-    else if (action === "check-batch") await env.verifyBatchTarget();
+    } else if (action === "check") await env.target.verifyUi();
+    else if (action === "check-batch") await env.target.verifyBatch();
     else if (action === "cleanup") await cleanup(env);
     else if (action === "recover") {
       await env.cluster.identity();
       await env.cluster.verify("Namespace", j.namespace);
-      await env.bridge();
+      await env.database.bridge();
       // 基準データを復元する前に、記録済みの全Jobの状態を照合する。
       for (const r of j.resources.filter((r) => r.kind === "Job"))
-        await env.deleteOwned("Job", r.name);
+        await env.cluster.deleteOwned("Job", r.name);
       for (const name of ["sales-upstream", "sales-app"]) {
         const dep = await env.cluster.verify("Deployment", name);
         dep.spec.replicas = 1;
         delete dep.metadata.managedFields;
         delete dep.status;
         await env.cluster.k(["replace", "-f", "-"], dep);
-        await env.rollout(name);
+        await env.workloads.rollout(name);
       }
-      const db = await env.pool();
+      const db = await env.database.pool();
       try {
         const lock = await acquireTestLock(db);
         try {
@@ -129,7 +129,7 @@ export async function manage(
         await db.end();
       }
       if (await env.cluster.get("Ingress", "sales-sso"))
-        await env.verifyTarget();
+        await env.target.verifyUi();
       j.blocked = false;
       j.phase = (await env.cluster.get("Ingress", "sales-sso"))
         ? "prepared"

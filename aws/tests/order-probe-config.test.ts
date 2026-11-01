@@ -4,8 +4,8 @@ import { fork } from 'node:child_process';
 import { once } from 'node:events';
 import { existsSync } from 'node:fs';
 import { fixture } from '../../tests/verification/aws-sales/fixtures.ts';
-import { saveJournal, loadJournal, exclusive, unlockStale } from '../../tests/aws-sales/environment.ts';
-import { Environment } from '../../tests/aws-sales/lifecycle.ts';
+import { saveJournal, loadJournal, exclusive, unlockStale } from '../../tests/aws-sales/environment/state.ts';
+import { Environment } from '../../tests/aws-sales/environment/lifecycle.ts';
 import { checkProbeTarget, withProbeDatabase } from './probe-database.ts';
 
 function setup() {
@@ -39,11 +39,11 @@ function setup() {
     assert.equal(loadJournal(f.file).blocked, true);
     if (opts.closeError) throw opts.closeError;
   } };
-  const create = () => ({ async verifyTarget() {
+  const create = () => ({ target: { async verifyUi() {
     assert.equal(loadJournal(f.file).blocked, true);
     assert.equal(loadJournal(f.file).phase, 'recovery-required');
-    calls.push('verify'); if (!opts.verify) throw Error('ALB_TARGET_MISMATCH'); },
-    async pool() { calls.push('pool'); return pool; } }) as unknown as Environment;
+    calls.push('verify'); if (!opts.verify) throw Error('ALB_TARGET_MISMATCH'); } },
+    database: { async pool() { calls.push('pool'); return pool; } } }) as unknown as Environment;
   return { ...f, target, calls, opts, create, connection };
 }
 

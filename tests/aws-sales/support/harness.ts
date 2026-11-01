@@ -6,16 +6,16 @@ import {
 } from "@playwright/test";
 import type { Pool } from "mysql2/promise";
 import { readFileSync } from "node:fs";
-import { Environment } from "./lifecycle.ts";
+import { Environment } from "../environment/lifecycle.ts";
 import {
   exclusive,
   loadJournal,
   assertCondition,
   type CaseResult,
   errorCodes,
-} from "./environment.ts";
+} from "../environment/state.ts";
 import { HarnessSession, type EnvironmentFactory } from "./harness-session.ts";
-import { verifyAuthPage } from "../../test-support/auth/fixture.ts";
+import { verifyAuthPage } from "../../../test-support/auth/fixture.ts";
 
 export class Unconfirmed extends Error {}
 export type BaseHarness = {

@@ -1,15 +1,18 @@
 // Verification only: real production fixture + local fake DB/cluster and a routed Chrome page.
-import { readResponseJson } from "../../aws-sales/response-body.ts";
+import { readResponseJson } from "../../aws-sales/support/response-body.ts";
 import type { Response } from "@playwright/test";
-import { uiTest as production, business } from "../../aws-sales/harness.ts";
-import { Environment } from "../../aws-sales/lifecycle.ts";
-import { loadJournal } from "../../aws-sales/environment.ts";
+import { uiTest as production, business } from "../../aws-sales/support/harness.ts";
+import { TargetVerifier } from "../../aws-sales/environment/target-verifier.ts";
+import { SalesDatabase } from "../../aws-sales/database/database.ts";
+import { UpstreamCatalog } from "../../aws-sales/upstream/catalog.ts";
+import { Environment } from "../../aws-sales/environment/lifecycle.ts";
+import { loadJournal } from "../../aws-sales/environment/state.ts";
 import { writeFileSync } from "node:fs";
-Environment.prototype.verifyTarget = async () => {
+TargetVerifier.prototype.verifyUi = async () => {
   if (process.env.TARGET_MARKER)
     writeFileSync(process.env.TARGET_MARKER, "verified");
 };
-Environment.prototype.pool = async () =>
+SalesDatabase.prototype.pool = async () =>
   ({
     getConnection: async () => ({
       query: async (sql: string) => [
@@ -26,9 +29,9 @@ Environment.prototype.pool = async () =>
     }),
     end: async () => {},
   }) as any;
-Environment.prototype.dbOwner = async () => {};
-Environment.prototype.catalog = async () => {};
-Environment.prototype.reset = async () => {};
+SalesDatabase.prototype.verifyOwner = async () => {};
+UpstreamCatalog.prototype.useFixture = async () => {};
+SalesDatabase.prototype.reset = async () => {};
 Environment.prototype.restore = async () => {
   if (process.env.INJECT_BODY === "timeout") return;
   throw Error("INJECTED_RESTORE_FAILURE");

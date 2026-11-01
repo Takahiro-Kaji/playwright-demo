@@ -1,5 +1,5 @@
-import { assertCondition, type Journal } from "./environment.ts";
-import { checkEnv } from "./lifecycle.ts";
+import { assertCondition, type Journal } from "../environment/state.ts";
+import { checkEnv } from "../environment/workloads.ts";
 export type BatchResult = {
   job: string;
   uid?: string;

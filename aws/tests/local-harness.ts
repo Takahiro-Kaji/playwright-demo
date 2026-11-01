@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
-import { loadJournal } from "../../tests/aws-sales/environment.ts";
+import { loadJournal } from "../../tests/aws-sales/environment/state.ts";
 import { localEnvironment } from "./local-adapter.ts";
-import { createHarnessTests } from "../../tests/aws-sales/harness.ts";
+import { createHarnessTests } from "../../tests/aws-sales/support/harness.ts";
 export function createLocalHarnessTests() {
   const file =
     process.env.AWS_SALES_LOCAL_JOURNAL ||
