@@ -22,10 +22,10 @@ JDK 17、Node.js 26、Google Chrome が必要です。`java/` で以下を実行
 export JAVA_SSO_URL='https://example.invalid/'
 export JAVA_SSO_EXPECTED_URL='https://example.invalid/signed-in'
 export JAVA_SSO_SUCCESS_SELECTOR='#signed-in'
-./mvnw test-compile exec:java -Dexec.classpathScope=test -Dexec.mainClass=learning.SsoManual
+./mvnw test-compile exec:exec
 ```
 
-Chrome で利用者が認証し Enter を押した後、指定要素を確認して storage state を保存し、新 context と headless Chrome 再起動でも同じ要素を確認します。開始 URL、認証成立時の完全な URL（origin と path）、実セレクターを差し替えてください。URL の query と fragment は受け付けません。例外の詳細は機密を避けるため表示しません。state は機密として `.local/java-sso/` に保存されます。公開・コミットしないでください。実際の認証は未確認です。
+Chrome で利用者が認証し Enter を押した後、指定要素を確認して storage state を保存し、新 context と headless Chrome 再起動でも同じ要素を確認します。開始 URL、認証成立時の完全な URL（origin と path）、実セレクターを差し替えてください。URL の query と fragment は受け付けません。例外の詳細は機密を避けるため表示しません。ブラウザー起動・操作は各15秒、手動待機を含む全体は5分で打ち切り、起動したプロセスの停止を確認します。state は機密として `.local/java-sso/` に保存されます。公開・コミットしないでください。実際の認証は未確認です。
 
 ケースごとの流れ、API 逆引き、追加例は [教材](learning.md) を参照してください。
 
