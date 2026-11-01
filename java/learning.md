@@ -46,3 +46,9 @@ class AdditionalExampleTest {
 ```
 
 `./mvnw -Dtest=AdditionalExampleTest test` で実行します。故障検出の練習では、例の snapshot 直前に `h.execute("UPDATE products SET price=121 WHERE product_code='P001'")` を一時追加すると価格不一致で FAIL になります。追加した行を削除して再実行し PASS を確認してください。専用 DB は `try` 終了時に停止確認のうえ削除します。
+
+## 同期観測の時刻と応答取得の制約
+
+Java の Playwright イベントコールバックの実行時刻は実際のネットワーク時刻とは限りません。同期中ケースはブラウザーの Resource Timing の `requestStart` と `responseStart` を使い、ブラウザー時刻を Java の `System.nanoTime()` と要求前後の2回の往復で較正します。往復時間と較正差に加え各側5msの余裕を引いた区間内でのみ DB の版1→版2を採用し、較正不可や区間不成立は未確認とします。表示完了時刻まで区間を延長しません。ただし2回の較正だけでは両時計の間のドリフト上限を証明できないため、現在は候補の重なりが見つかっても未確認にします。観測値と候補判定は保存します。信頼できる時計間の誤差上限を別途確立するまでは PASS にしません。
+
+この環境では `Response.text()` が応答取得中に無期限に待つ現象を確認しました。そのため試験用 `addInitScript` が元の `fetch` を呼び、返す Response は変更せず、複製の JSON を取得します。複製処理には負荷があり画面の時刻に影響し得ます。重なり判定にはコールバック時刻や表示完了時刻を使わず、ブラウザーの Resource Timing と DB の保守的な共通区間のみを使います。本文はメモリー内で照合し、証跡には保存しません。
