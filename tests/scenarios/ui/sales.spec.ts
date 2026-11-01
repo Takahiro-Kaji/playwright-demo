@@ -1,5 +1,5 @@
 /** 画面から実HTTP正常・モック障害を確かめる2ケース。各testをGiven→When→Then→Afterの順に読む。 */
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../../../test-support/auth/fixture.ts";
 import { settleAfter } from "../../../test-support/after.ts";
 import { harness } from "../../targets/sales/harness.ts";
 

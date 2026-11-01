@@ -1,5 +1,5 @@
 /** 同期中表示・古い表示・不整合受注の3ケース。固定データ、各testのGiven→When→Then→Afterの順に読む。 */
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../../../test-support/auth/fixture.ts";
 import { writeFile, mkdir } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
