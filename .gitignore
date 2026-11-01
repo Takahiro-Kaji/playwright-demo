@@ -16,3 +16,10 @@ test-results/
 mock-curl.conf
 
 /java/target/
+
+# Terraform state contains Cognito client secrets.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example

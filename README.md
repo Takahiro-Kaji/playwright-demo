@@ -39,3 +39,5 @@ npm test               # 上記検査と7ケースを実行
 ### Java 版
 
 同じローカル販売管理デモを Playwright Java・JUnit・SQLite JDBC で学習できます。導入とケース別コマンドは [Java 版 README](java/README.md) を参照してください。TypeScript 版も引き続き利用できます。実 SSO と AWS は未検証です。
+
+AWS上のWeb UIに企業SSOを追加する検証用構成は [aws-sso](aws-sso/README.md) を参照してください。実AWS・実IdPでの適用と動作確認は未実施です。
