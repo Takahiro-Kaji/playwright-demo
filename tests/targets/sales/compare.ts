@@ -46,6 +46,14 @@ export function compareCatalog(
       "SELECT order_id,product_code,quantity,unit_price,status FROM orders",
     )
     .all() as any[];
+  return compareSalesRows({ products, inventory, sync, orders }, expected);
+}
+
+/** Compare independently retrieved rows, including every key and every persisted value. */
+export function compareSalesRows(
+  { products, inventory, sync, orders }: { products: any[]; inventory: any[]; sync: any[]; orders: any[] },
+  expected: ExpectedState,
+): string[] {
   const differences: string[] = [];
   const allExpected = [...expected.products, ...expected.deleted];
   if (expected.deleted.some((p) => p.active || p.quantity !== 0))

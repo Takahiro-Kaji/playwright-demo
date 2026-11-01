@@ -2,6 +2,12 @@ apiVersion: v1
 kind: Namespace
 metadata: { name: integration-demo }
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: sales-catalog, namespace: integration-demo }
+data:
+  catalog.json: '${SALES_CATALOG}'
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata: { name: sales-upstream, namespace: integration-demo }
@@ -14,12 +20,15 @@ spec:
       containers:
         - name: upstream
           image: ${SALES_IMAGE}
-          command: [node, aws/sales/runtime.ts, mock]
+          command: [node, aws/sales/runtime.ts, ${SALES_UPSTREAM_MODE}]
           env:
             - { name: PORT, value: "8081" }
+            - { name: SALES_CATALOG_FILE, value: /catalog/catalog.json }
             - { name: MOCK_TOKEN, valueFrom: { secretKeyRef: { name: sales-mock, key: token } } }
           ports: [{ name: http, containerPort: 8081 }]
+          volumeMounts: [{ name: sales-catalog, mountPath: /catalog, readOnly: true }]
           securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+      volumes: [{ name: sales-catalog, configMap: { name: sales-catalog } }]
       securityContext: { runAsNonRoot: true, runAsUser: 1000, seccompProfile: { type: RuntimeDefault } }
 ---
 apiVersion: v1

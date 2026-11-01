@@ -37,3 +37,20 @@ npm run aws-sales:test
 実際のUI URLとCognitoドメインに差し替え、各リージョンで実行する。認証セットアップは手動ログイン後、別コンテキストとChrome再起動後の再利用を確認する。試験は未認証の画面・受注APIがCognitoへリダイレクトされること、保存状態で販売管理画面を表示し、不正な受注が400で拒否されることを確認する。DBに受注を登録しない。trace・動画・スクリーンショットは無効。状態ファイルは機密情報として扱う。
 
 ローカル版の7ケースは専用SQLite・ローカルプロセスを使うため、このAWS環境を自動的に試験しない。AWS上の業務シナリオとDB照合は別途追加が必要。
+
+## 上流モードと試験データの切替
+
+`SALES_UPSTREAM_MODE=upstream`（既定）は学習用の通常HTTP IF、`mock` は管理APIで障害を注入できるモックを配置する。どちらも本番外部サービスではない。`SALES_IMAGE` と `DB_HOST` に加えてこの値を指定し、各リージョンで `node aws/render-sales.cjs | kubectl --context CONTEXT apply -f -` を実行し、`kubectl --context CONTEXT -n integration-demo rollout status deployment/sales-upstream` を確認する。描画・適用はカタログをF1に戻すので、別試験と同時に実行しない。
+
+`tests/aws-sales/fixture.ts` は `f1`, `f2`, `bulk1`, `bulk2` を生成する。ConfigMap更新例（試験専用クラスターでのみ使用）:
+
+```sh
+node tests/aws-sales/fixture.ts f2 > /tmp/sales-catalog.json
+kubectl --context CONTEXT -n integration-demo create configmap sales-catalog \
+  --from-file=catalog.json=/tmp/sales-catalog.json --dry-run=client -o yaml | \
+  kubectl --context CONTEXT -n integration-demo apply -f -
+```
+
+ConfigMapの反映は即時ではない。全upstream Podの `/catalog` が期待値を返すことを確認してから同期する。試験後はF1に戻し、実際の応答で復元を確認する。モックのステータスはPod内のメモリに保持されるため、障害注入後は元の値に戻し応答を確認する。両リージョンのサービスはそれぞれ独立しているがDBは共有であり、他リージョンのバッチ・画面操作も停止すること。
+
+`tests/aws-sales/db.ts` にMySQLの一貫した4表スナップショット、固定期待値との全件照合、試験間の協調用MySQL advisory lockを用意している。advisory lockはこのロックを使わない通常業務やバッチを止めないため、専用環境の隔離が別途必要。現時点ではこの部品はAWSの7ケース、DB初期化・故障注入・復元処理には接続されていない。既存データを対象に手動で初期化や故障注入を行わない。
