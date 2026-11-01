@@ -7,13 +7,18 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 
 class CleanupError(Exception): pass
 
 def run(args, env=None):
-    result = subprocess.run(args, env=env, text=True, capture_output=True)
+    try:
+        result = subprocess.run(args, env=env, text=True, capture_output=True)
+    except OSError:
+        raise CleanupError('external command could not be started') from None
     if result.returncode:
-        raise CleanupError(f"command failed: {args[0]} {args[1] if len(args)>1 else ''}; {result.stderr.strip()[:400]}")
+        # stdout, stderr and arguments can contain credentials or raw kubeconfig.
+        raise CleanupError('external command failed')
     return result.stdout
 
 def aws(region, *args):
@@ -134,10 +139,16 @@ def cluster_context(snapshot, region):
     remote=aws(region,'eks','describe-cluster','--name',cluster['id'])['cluster']
     if remote['arn'] != arn: raise CleanupError('cluster identity mismatch')
     context=snapshot['contexts'][region]
-    kube=json.loads(run(['kubectl','config','view','--minify','--context',context,'-o','json']))
+    # --raw is required: kubectl otherwise replaces embedded CA data with
+    # DATA+OMITTED. The returned kubeconfig may include credentials; keep it
+    # in memory only and never include it in errors or output.
+    kube=json.loads(run(['kubectl','config','view','--minify','--raw','--context',context,'-o','json']))
     if len(kube.get('clusters',[])) != 1: raise CleanupError('kubectl context is not unique')
     cluster_config=kube['clusters'][0]['cluster']
-    if cluster_config.get('server','').rstrip('/') != remote['endpoint'].rstrip('/') or cluster_config.get('insecure-skip-tls-verify') or cluster_config.get('certificate-authority-data') != remote['certificateAuthority']['data']:
+    if not cluster_config.get('certificate-authority-data'):
+        raise CleanupError('embedded kubeconfig CA data required; CA file references are not supported')
+    remote_ca=remote.get('certificateAuthority',{}).get('data')
+    if not remote_ca or cluster_config.get('server','').rstrip('/') != remote['endpoint'].rstrip('/') or cluster_config.get('insecure-skip-tls-verify') or cluster_config['certificate-authority-data'] != remote_ca:
         raise CleanupError('kubectl context endpoint or CA does not match EKS')
     return context
 
@@ -149,6 +160,24 @@ def delete_ingress(snapshot, region):
     ingress=json.loads(raw)
     if ingress.get('metadata',{}).get('labels',{}).get('app.kubernetes.io/part-of') != 'sales-aws-demo': raise CleanupError('ingress ownership label missing; inspect manually')
     run(['kubectl','--context',context,'-n','integration-demo','delete','ingress','sales-sso','--wait=true','--timeout=300s'])
+
+def destroy_state(entry):
+    # Keep the plan private; only successful plans are displayed for review.
+    # A failed command's output is never relayed to the terminal.
+    env=clean_env(); env['TF_WORKSPACE']=entry['workspace']
+    with tempfile.TemporaryDirectory(prefix='sales-cleanup-') as directory:
+        os.chmod(directory,0o700)
+        plan=str(Path(directory,'destroy.tfplan'))
+        base=['terraform','-chdir='+entry['directory']]
+        output=run(base+['plan','-destroy','-input=false','-no-color','-var-file='+entry['var_file'],'-out='+plan],env)
+        print(output,flush=True)
+        try:
+            answer=input('Apply this destroy plan? Type yes to continue: ').strip()
+        except EOFError:
+            raise CleanupError('destroy approval is unavailable') from None
+        if answer != 'yes':
+            raise CleanupError('destroy was not approved')
+        run(base+['apply','-input=false','-no-color',plan],env)
 
 def destroy(snapshot):
     identity(snapshot)
@@ -164,12 +193,10 @@ def destroy(snapshot):
         remaining=collect_vpc(v['region'],v['vpc'])
         if remaining['load_balancers'] or remaining['target_groups']:
             raise CleanupError(f"load balancer or target group remains in {v['region']} VPC {v['vpc']}; inspect ownership before retry")
-    # Terraform still prompts for each destroy plan. A failed stage stops the sequence.
+    # Each state has its own reviewed plan. A failed stage stops the sequence.
     for entry in sorted(snapshot['states'],key=lambda s: s['kind']=='infra'):
         if entry.get('not_started') is True: continue
-        env=clean_env(); env['TF_WORKSPACE']=entry['workspace']
-        cmd=['terraform','-chdir='+entry['directory'],'destroy','-var-file='+entry['var_file']]
-        if subprocess.run(cmd,env=env).returncode: raise CleanupError('destroy did not complete; inspect and capture a fresh inventory before retry')
+        destroy_state(entry)
 
 def verify(snapshot):
     identity(snapshot)

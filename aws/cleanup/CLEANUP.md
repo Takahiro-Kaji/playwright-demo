@@ -8,6 +8,8 @@
 2. [config.example.json](config.example.json) を `.local/cleanup-config.json` にコピーし、実際のAWSアカウントID、primary/secondaryリージョンの順番、両kubectl context、3 stateのディレクトリ・workspace・tfvars絶対パスを設定する。各ディレクトリを同じbackendで `terraform init` し、実際に使うworkspaceを作成済みとする。AWS CLIの認証情報とTerraformの認証情報は同一にする。例: `export AWS_PROFILE=YOUR_PROFILE`。使用前に `aws sts get-caller-identity`、各stateの中身と `kubectl config` を確認する。
 3. `aws/sso/ingress.yaml.tpl` の所有ラベルを保持する。IngressはコントローラーによりALBが作られる。作成したDNS名、証明書、コントローラーの追加リソース、マネージド以外のリソースを手元で記録する。これらはTerraform stateだけでは追跡できない。
 
+EKS接続確認にはkubeconfigに埋め込まれた `certificate-authority-data` が必要。`certificate-authority` によるCAファイル参照は対応しておらず、停止する。`--raw` で取得したkubeconfigは認証情報を含み得るため内部だけで使用し、記録・表示しない。
+
 ## 一括削除と確認
 
 構築が完了または中断した後、削除前に次を実行する。inventoryは識別子・stateハッシュを含むので `.local/` 内に保持し、コミットしない。既存ファイルは上書きしない。実行時は毎回新しいファイル名を指定する。
@@ -26,7 +28,7 @@ python3 aws/cleanup/cleanup.py destroy .local/cleanup-inventory.json
 python3 aws/cleanup/cleanup.py verify .local/cleanup-inventory.json
 ```
 
-`destroy` は両Ingressの削除後、SSOの2 state、最後にインフラstateの順で `terraform destroy -var-file=...` を実行する。Terraformは各stateのplanを表示し承認を求める。`-auto-approve`、`-target`、stateの手動変更は使わない。Terraformが途中で止まれば後続へ進まない。stateがinventory後に変わった場合も止まる。stateを正しく管理していないリソースはTerraformでは削除されない。処理開始後に権限が変わった場合も操作を中断する。
+`destroy` は両Ingressの削除後、SSOの2 state、最後にインフラstateの順で破棄する。各stateの `terraform plan -destroy` を表示し、`yes` の入力後にその保存済みplanを適用する。planは秘密情報を含み得るため本人用の一時ディレクトリに置き、処理後に削除する。コマンド失敗時の出力は認証情報を含む可能性があるため表示しない。`-auto-approve`、`-target`、stateの手動変更は使わない。Terraformが途中で止まれば後続へ進まない。stateがinventory後に変わった場合も止まる。stateを正しく管理していないリソースはTerraformでは削除されない。処理開始後に権限が変わった場合も操作を中断する。
 
 `verify` は記録したstateが空であることと、削除前に記録したVPC内のEC2、接続中またはEKSタグ付きEBS、NAT、NATのEIP、ALB、ターゲットグループ、VPC、state上のRDS・ECR・EKS・Cognito・IAMロールをAWS APIから確認する。削除中のNATは残存扱い、`deleted` は削除済み扱いにする。APIエラーや権限不足は `UNCONFIRMED`・終了コード2、残存または未確認は終了コード1。削除が非同期のため、時間を置いて同じinventoryで再確認する。`verify` 成功は記録した対象の不在であり、AWSアカウント全体に課金対象がないことの証明ではない。
 
