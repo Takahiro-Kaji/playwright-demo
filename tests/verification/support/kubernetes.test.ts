@@ -7,7 +7,7 @@ import {
   type Runner,
 } from "../../../test-support/kubernetes.ts";
 const target = { context: "dev-context", namespace: "demo", job: "run-1" };
-test("safe arrays, complete, failure and confirmed stop", async () => {
+test("安全な引数配列と完了・失敗・停止確認を検証する", async () => {
   const calls: string[][] = [];
   let result = "Complete";
   const run: Runner = async (a) => {
@@ -39,7 +39,7 @@ test("safe arrays, complete, failure and confirmed stop", async () => {
   await stopJob(target, run, 1000);
   assert.rejects(() => startJob({ ...target, namespace: "-bad" }, "sync", run));
 });
-test("unknown stop is not success", async () => {
+test("停止未確認を成功にしない", async () => {
   const run: Runner = async (a) => ({
     code: 0,
     stderr: "",
@@ -48,7 +48,7 @@ test("unknown stop is not success", async () => {
   await assert.rejects(() => stopJob(target, run, 1000), /UNCONFIRMED/);
 });
 
-test("fake CLI process receives args without shell interpretation", async () => {
+test("模擬CLIにシェル解釈なしで引数を渡す", async () => {
   const { mkdtempSync, writeFileSync, chmodSync, rmSync } =
     await import("node:fs");
   const { tmpdir } = await import("node:os");

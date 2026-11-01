@@ -23,7 +23,7 @@ const test = authTest.extend({
   },
 });
 
-test("business action runs only after authenticated state is loaded", async ({
+test("認証済み状態を読み込んだ後だけ業務操作を実行する", async ({
   page,
 }) => {
   await writeFile(process.env.AUTH_TEST_MARKER!, "started");

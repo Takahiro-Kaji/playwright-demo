@@ -6,9 +6,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.DisplayName;
 
 class SafetyTest {
   @Test
+  @DisplayName("後処理失敗で後続を止めケースの判定を保持する")
   void afterFailureStopsFollowingCasesAndPreservesCaseVerdict() {
     SalesScenariosTest.initialize();
     SalesScenariosTest.stop = false;
@@ -25,6 +27,7 @@ class SafetyTest {
   }
 
   @Test
+  @DisplayName("観測処理の停止失敗を後処理失敗とし後続を止めDBを保持する")
   void observerStopFailureFailsAfterStopsFollowingCasesAndRetainsDb() throws Exception {
     SalesScenariosTest.initialize();
     SalesScenariosTest.stop = false;
@@ -52,6 +55,7 @@ class SafetyTest {
   }
 
   @Test
+  @DisplayName("後片付けが成功しても既存の保持指定を解除しない")
   void existingPreserveFlagCannotBeClearedBySuccessfulCleanup() throws Exception {
     SalesScenariosTest.initialize();
     SalesScenariosTest.stop = false;
@@ -73,6 +77,7 @@ class SafetyTest {
   }
 
   @Test
+  @DisplayName("時刻補正の不確かさを考慮してブラウザーの観測区間を狭める")
   void browserTimingIsShrunkByCalibrationUncertainty() {
     var first = new SyncObservation.Calibration(1_000_000_000L, 1_001_000_000L, 100, 0, 0);
     var last = new SyncObservation.Calibration(1_200_000_000L, 1_201_000_000L, 300, 150, 250);
@@ -87,6 +92,7 @@ class SafetyTest {
   }
 
   @Test
+  @DisplayName("同じリクエストと応答の区間内で状態遷移を確認する")
   void transitionMustBeInsideSameRequestResponseInterval() {
     SyncObservation observation = new SyncObservation(null, null, "unit");
     observation.attempts.add(Map.of("start", 100L, "response", 200L));

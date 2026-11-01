@@ -13,7 +13,7 @@ import { syncDisplayMatches } from "../../targets/sales/sync-display.ts";
 // { page }はPlaywrightのページfixture。asyncが返すPromiseをawaitして結果や失敗を受け取る。
 // test.stepはレポートの区切り。通常値のexpectはその場で比較し、locatorへのexpectは再試行する。
 // annotationは各ケースの判定や後片付けをレポーターが集計するために使う。
-const f2 = {
+const dataset2 = {
   catalogVersion: 2,
   products: [
     {
@@ -34,7 +34,7 @@ const f2 = {
 };
 
 // CROSS-01: 旧・新の固定データを先に作り、同期と参照が重なった証拠を探す。
-test("UI during synchronization", async ({ page }, info) => {
+test("同期中の商品表示が旧状態または新状態で一貫する", async ({ page }, info) => {
   const h = await harness("upstream");
   const initial = h.scopedCatalog(bulkCatalog(1)),
     updated = h.scopedCatalog(bulkCatalog(2));
@@ -190,7 +190,7 @@ test("UI during synchronization", async ({ page }, info) => {
         timer = undefined;
       }
     });
-    await test.step("Then: 観測区間とF2全件を照合", async () => {
+    await test.step("Then: 観測区間とデータセット2全件を照合", async () => {
       established = hasObservedOverlap(attempts, samples);
       expect(attempts.length).toBeGreaterThan(0);
       expect(pageErrors).toEqual([]);
@@ -284,16 +284,16 @@ test("UI during synchronization", async ({ page }, info) => {
   }
 });
 
-// CROSS-02: 表示したversion 1のままF2同期後に受注し、拒否とDB不変を確認する。
-test("stale version rejects order", async ({ page }) => {
+// CROSS-02: 表示したversion 1のままデータセット2同期後に受注し、拒否とDB不変を確認する。
+test("古い表示からの受注を拒否する", async ({ page }) => {
   const h = await harness("upstream");
   let before: ReturnType<typeof h.snapshot>;
   try {
-    await test.step("Given: version 1を表示しF2へ同期", async () => {
+    await test.step("Given: version 1を表示しデータセット2へ同期", async () => {
       expect(await h.batch()).toBe(0);
       await page.goto(h.app);
       await page.locator("#refresh").click();
-      await writeFile(h.catalog, JSON.stringify(h.scopedCatalog(f2)));
+      await writeFile(h.catalog, JSON.stringify(h.scopedCatalog(dataset2)));
       expect(await h.batch()).toBe(0);
       const db = new DatabaseSync(h.db);
       try {
@@ -301,7 +301,7 @@ test("stale version rejects order", async ({ page }) => {
           compareCatalog(
             db,
             {
-              products: h.scopedCatalog(f2).products.map((p, i) => ({
+              products: h.scopedCatalog(dataset2).products.map((p, i) => ({
                 ...p,
                 version: i === 0 ? 2 : 1,
               })),
@@ -315,8 +315,8 @@ test("stale version rejects order", async ({ page }) => {
       } finally {
         db.close();
       }
-      // 固定期待でF2を検証した後のsnapshotは、受注操作による変化がないか比較する基準。
-      before = h.snapshot();
+      // 固定期待でデータセット2を検証した後のsnapshotは、受注操作による変化がないか比較する基準。
+      before = h.snapshot({ kind: "order" });
     });
     let response: import("@playwright/test").Response;
     await test.step("When: 古い画面から受注", async () => {
@@ -332,7 +332,7 @@ test("stale version rejects order", async ({ page }) => {
       await expect(page.locator("#result")).toHaveText(
         "情報が更新されました。再表示してください",
       );
-      expect(h.snapshot()).toEqual(before);
+      expect(h.snapshot({ kind: "order" })).toEqual(before);
     });
     test
       .info()
@@ -355,7 +355,7 @@ test("stale version rejects order", async ({ page }) => {
 });
 
 // CROSS-03: このケース所有の商品だけで在庫行を欠落させ、拒否・不変・Afterでの復元を確認する。
-test("inconsistent relationship rejects order", async ({ page }) => {
+test("商品と在庫が不整合な場合は受注を拒否する", async ({ page }) => {
   const h = await harness("upstream");
   let removed = false;
   let before: ReturnType<typeof h.snapshot>;
@@ -366,7 +366,7 @@ test("inconsistent relationship rejects order", async ({ page }) => {
       await page.locator("#refresh").click();
       h.execute("DELETE FROM inventory WHERE product_code=?", h.code("P001"));
       removed = true;
-      before = h.snapshot();
+      before = h.snapshot({ kind: "order" });
     });
     let response: import("@playwright/test").Response;
     await test.step("When: 不整合のまま受注", async () => {
@@ -382,7 +382,7 @@ test("inconsistent relationship rejects order", async ({ page }) => {
       await expect(page.locator("#result")).toHaveText(
         "商品情報に不整合があります",
       );
-      expect(h.snapshot()).toEqual(before);
+      expect(h.snapshot({ kind: "order" })).toEqual(before);
     });
     test
       .info()

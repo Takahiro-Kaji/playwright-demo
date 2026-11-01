@@ -17,7 +17,7 @@ for (const mode of [
   "foreign-pod",
   "startup",
 ] as const)
-  test(`Job termination evidence: ${mode}`, async () => {
+  test(`Jobの終了証拠を確認する: ${mode}`, async () => {
     const f = fixture(),
       env = new Environment(f.file, f.j);
     let deleted = false;

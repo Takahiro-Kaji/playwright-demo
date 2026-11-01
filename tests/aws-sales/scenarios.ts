@@ -121,7 +121,7 @@ register("UI-01 UI正常・学習用通常HTTP IFと受注", async (h: Harness) 
   const expected = expectedFixture("f1");
   expected.products[0].quantity = 4;
   expected.products[0].version = 2;
-  await test.step("Given: F1を実Jobで同期し固定期待と照合", async () => {
+  await test.step("Given: データセット1を実Jobで同期し固定期待と照合", async () => {
     await batch(h);
     await verify(h, "f1");
   });
@@ -178,7 +178,7 @@ register("UI-01 UI正常・学習用通常HTTP IFと受注", async (h: Harness) 
 register("UI-02 UIモック503・DB不変", async (h: Harness) => {
   let before: unknown,
     old = 200;
-  await test.step("Given: F1同期とモック503実応答", async () => {
+  await test.step("Given: データセット1同期とモック503実応答", async () => {
     await h.env.catalog("f1", "mock");
     await batch(h);
     await verify(h, "f1");
@@ -202,7 +202,7 @@ register("UI-02 UIモック503・DB不変", async (h: Harness) => {
 });
 
 registerBatch("BATCH-01 バッチ正常・全件照合", async (h: BaseHarness) => {
-  await test.step("Given: 通常IFのF1実応答と空DB", async () => {
+  await test.step("Given: 通常IFのデータセット1実応答と空DB", async () => {
     await h.env.catalogMatches("f1");
     equal(
       await snapshotMysql(h.db),
@@ -221,7 +221,7 @@ registerBatch(
   async (h: BaseHarness) => {
     let before: unknown,
       old = 200;
-    await test.step("Given: F1同期後にモック503", async () => {
+    await test.step("Given: データセット1同期後にモック503", async () => {
       await h.env.catalog("f1", "mock");
       await batch(h);
       await verify(h, "f1");
@@ -249,7 +249,7 @@ registerBatch(
 
 register("CROSS-02 古いversionによる受注拒否", async (h: Harness) => {
   let before: unknown;
-  await test.step("Given: F1表示を保持してF2同期・固定照合", async () => {
+  await test.step("Given: データセット1表示を保持してデータセット2同期・固定照合", async () => {
     await batch(h);
     await verify(h, "f1");
     await show(h);
@@ -272,12 +272,12 @@ register("CROSS-02 古いversionによる受注拒否", async (h: Harness) => {
 register("CROSS-03 不整合情報による受注拒否・復元", async (h: Harness) => {
   let before: unknown;
   {
-    await test.step("Given: F1表示後に専用DBの在庫行を欠落", async () => {
+    await test.step("Given: データセット1表示後に専用DBの在庫行を欠落", async () => {
       await batch(h);
       await verify(h, "f1");
       await show(h);
       h.afterActions.push(() =>
-        test.step("After: 欠落在庫を復元し固定F1を全件照合", async () => {
+        test.step("After: 欠落在庫を復元し固定データセット1を全件照合", async () => {
           await h.db.execute(
             "INSERT INTO inventory(product_code,quantity) VALUES (?,?) ON DUPLICATE KEY UPDATE quantity=VALUES(quantity)",
             ["P001", 5],

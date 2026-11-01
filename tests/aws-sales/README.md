@@ -8,7 +8,7 @@ TypeScript版の販売管理デモを、実行ごとの専用namespace・MySQL D
 
 - `environment.ts`：外部設定・ローカルjournal・排他、AWS identity/EKS kubeconfig照合、所有ラベルとUID。
 - `resources.ts`：今回だけのbridge、DB Secret、アプリ、上流、Service、CronJob、Cognito Ingress。
-- `lifecycle.ts`：専用DBとユーザー作成・権限、SQLスキーマ初期化、F1投入、DNS/ALB/Ingress/Pod/DB照合、カタログ実応答、Jobと復元。
+- `lifecycle.ts`：専用DBとユーザー作成・権限、SQLスキーマ初期化、データセット1投入、DNS/ALB/Ingress/Pod/DB照合、カタログ実応答、Jobと復元。
 - `mysql-tunnel.ts`：試験用bridge Podからprivate RDSへ接続し、ローカルのmysql2でCAとRDS名のTLS検証。トランザクションとロック中は同じ接続を保持する。
 - `harness.ts`：共通の `BaseHarness` はDB/Kubernetes対象確認 → ロック → 初期化 → 本体 → 個別/共通復元 → 結果保存を行う。UI専用 `uiSession` / `uiHarness` のみbrowserと保存認証を要求する。After失敗は実行をブロック。
 - `business.spec.ts` → `scenarios.ts`：実処理へ接続した7ケース。
@@ -44,7 +44,7 @@ npm run aws-sales:manage -- prepare .local/aws-sales/tokyo-run.json .local/aws-s
 npm run aws-sales:manage -- describe .local/aws-sales/tokyo-run.json
 ```
 
-`prepare` は所有情報を先にjournalへ書き、専用namespace・bridge → 専用DB/所有マーカー/ユーザー/権限 → アプリ/上流/Jobひな型/Ingress → F1同期・全件照合まで行う。途中失敗時もjournalを保持する。
+`prepare` は所有情報を先にjournalへ書き、専用namespace・bridge → 専用DB/所有マーカー/ユーザー/権限 → アプリ/上流/Jobひな型/Ingress → データセット1同期・全件照合まで行う。途中失敗時もjournalを保持する。
 
 4. describeの専用ALB DNSへ検証ホストを登録する。ALBがhealthyになったら、対象整合性を確認して手動認証する。
 
@@ -66,7 +66,7 @@ npm run aws-sales:run -- .local/aws-sales/tokyo-run.json
 npm run aws-sales:run -- .local/aws-sales/tokyo-run.json --grep UI-01
 ```
 
-再試験のため環境を残す場合の低水準入口は以下。AfterでF1と通常IFへ復元しJobは停止するが、namespace・Ingress・ALBは残るため必ず後のcleanupを行う。
+再試験のため環境を残す場合の低水準入口は以下。Afterでデータセット1と通常IFへ復元しJobは停止するが、namespace・Ingress・ALBは残るため必ず後のcleanupを行う。
 
 ```sh
 export AWS_SALES_JOURNAL=.local/aws-sales/tokyo-run.json
@@ -79,17 +79,17 @@ npm run aws-sales:manage -- cleanup .local/aws-sales/tokyo-run.json
 
 ## ケース別の流れ
 
-UIケースは認証とURL/ALBを含む対象確認を行い、バッチケースはブラウザーなしでDB/Kubernetesの対象確認を行う。各ケースは共通Givenで設定・対象・所有確認を済ませ、今回DBの4表を空にする。既存業務データの初期化はしない。共通Afterは全件F1と通常IFを復元して確認する。テストは1 worker・retryなし・最初の失敗で停止。
+UIケースは認証とURL/ALBを含む対象確認を行い、バッチケースはブラウザーなしでDB/Kubernetesの対象確認を行う。各ケースは共通Givenで設定・対象・所有確認を済ませ、今回DBの4表を空にする。既存業務データの初期化はしない。共通Afterは全件データセット1と通常IFを復元して確認する。テストは1 worker・retryなし・最初の失敗で停止。
 
-- **UI-01「UI正常・学習用通常HTTP IFと受注」**：Given `batch()` → `compareMysql(F1)`。When `availability()` → `show()` → `order()`。Then 201・UUID・画面成功・固定単価/数量、在庫4/version2とP002不変を含む4表全件照合。After 共通復元。
-- **UI-02「UIモック503・DB不変」**：Given `catalog(f1,mock)` → `batch()` → 固定F1照合 → `snapshotMysql()` → 元status退避 → `mockStatus(503)` → `catalogMatches(503)`。When 画面接続確認。Then 502・外部エラー・4表不変。After status元値とHTTP確認 → 共通復元。
-- **BATCH-01「バッチ正常・全件照合」**：Given F1の実応答と空DB。When 実 `batch()`。Then Job completeに加えて固定F1の全キー・件数・値・関連・世代・受注0件を比較。After 共通復元。
-- **BATCH-02「バッチモック503・異常終了とDB不変」**：Given F1同期 → 固定照合 → snapshot → モック503実応答。When 対象Job/Pod/バッチコンテナの所有確認、実行開始/終了、exitCode 1・reason Error・signalなし・既存固定エラーマーカーを確認（単なるFailedやtimeoutでは代替不可）。Job前後にモック503の実応答を確認する。Then 4表不変。After status元値/HTTPと共通復元。
+- **UI-01「UI正常・学習用通常HTTP IFと受注」**：Given `batch()` → `compareMysql(データセット1)`。When `availability()` → `show()` → `order()`。Then 201・UUID・画面成功・固定単価/数量、在庫4/version2とP002不変を含む4表全件照合。After 共通復元。
+- **UI-02「UIモック503・DB不変」**：Given `catalog(f1,mock)` → `batch()` → 固定データセット1照合 → `snapshotMysql()` → 元status退避 → `mockStatus(503)` → `catalogMatches(503)`。When 画面接続確認。Then 502・外部エラー・4表不変。After status元値とHTTP確認 → 共通復元。
+- **BATCH-01「バッチ正常・全件照合」**：Given データセット1の実応答と空DB。When 実 `batch()`。Then Job completeに加えて固定データセット1の全キー・件数・値・関連・世代・受注0件を比較。After 共通復元。
+- **BATCH-02「バッチモック503・異常終了とDB不変」**：Given データセット1同期 → 固定照合 → snapshot → モック503実応答。When 対象Job/Pod/バッチコンテナの所有確認、実行開始/終了、exitCode 1・reason Error・signalなし・既存固定エラーマーカーを確認（単なるFailedやtimeoutでは代替不可）。Job前後にモック503の実応答を確認する。Then 4表不変。After status元値/HTTPと共通復元。
 - **CROSS-01「同期中UI・3000件全表示と独立DB観測」**：Given bulk1同期/固定照合 → bulk2実応答。When 実Jobと継続UI・独立SELECTを並行。Then HTTP・全3,000表示・全ボタン・JS/HTTPエラー・最終DBを確認し、既存 `hasObservedOverlap()` で同じ参照内の1→2だけを採用する。試行開始/Job待機12秒、20試行、10,000観測、UI timeout3秒。すべてrunnerの単調時計でSELECTの送受信を囲むため、クラスタ時計への換算は不要。証拠不足はunconfirmedで非ゼロ終了。After 開始済み処理回収、Job停止・観測要約保存・共通復元。アプリへ遅延は入れない。
-- **CROSS-02「古いversionによる受注拒否」**：Given F1同期/表示 → F2へ `catalog()`/`batch()` → 固定F2照合 → snapshot。When 保持した旧画面から1回受注。Then 409/STALE_VERSION・画面再表示要求・4表不変。After 共通復元。
-- **CROSS-03「不整合情報による受注拒否・復元」**：Given F1同期/表示 → 所有確認済みDBのP001在庫行だけDELETE → snapshot。When 受注。Then 409/INCONSISTENT_DATA・画面異常・4表不変。After 固定値で在庫行を復元しF1全件照合 → 共通復元。
+- **CROSS-02「古いversionによる受注拒否」**：Given データセット1同期/表示 → データセット2へ `catalog()`/`batch()` → 固定データセット2照合 → snapshot。When 保持した旧画面から1回受注。Then 409/STALE_VERSION・画面再表示要求・4表不変。After 共通復元。
+- **CROSS-03「不整合情報による受注拒否・復元」**：Given データセット1同期/表示 → 所有確認済みDBのP001在庫行だけDELETE → snapshot。When 受注。Then 409/INCONSISTENT_DATA・画面異常・4表不変。After 固定値で在庫行を復元しデータセット1全件照合 → 共通復元。
 
-固定期待値は操作より前に定義する。snapshotは「Whenで変わらなかったこと」の基準であり、F1/F2の正しさを証明する期待値の代わりにはしない。受注のtimeoutや応答喪失時に再送しない。
+固定期待値は操作より前に定義する。snapshotは「Whenで変わらなかったこと」の基準であり、データセット1/データセット2の正しさを証明する期待値の代わりにはしない。受注のtimeoutや応答喪失時に再送しない。
 
 ## 判定・復旧
 

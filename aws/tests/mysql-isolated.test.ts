@@ -11,7 +11,7 @@ import { salesFixture } from '../../tests/aws-sales/fixture.ts';
 const socketPath = process.env.TEST_MYSQL_SOCKET;
 if (!socketPath || !socketPath.startsWith('/tmp/')) throw Error('TEST_MYSQL_LOCAL_SOCKET_REQUIRED');
 
-test('MySQL transactions, complete comparison, injected differences and restoration', async () => {
+test('MySQLのトランザクション・全件照合・差分注入・復元を確認する', async () => {
   const database = `sales_qa_${randomBytes(12).toString('hex')}`;
   const admin = await mysql.createConnection({socketPath, user:'root'});
   let pool: mysql.Pool | undefined;

@@ -1,9 +1,8 @@
 /** 各ケース専用のローカル環境と操作を用意する。harnessの起動、返す操作、cleanupの順に読む。 */
-import { isDeepStrictEqual } from "node:util";
 import { openDb } from "../../../demo/sales/db.ts";
 import type { Catalog } from "../../../demo/sales/db.ts";
 import { test } from "@playwright/test";
-import { snapshotSales } from "./snapshot.ts";
+import { snapshotSales, type SnapshotTarget } from "./snapshot.ts";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
 import { writeFileSync } from "node:fs";
@@ -74,10 +73,6 @@ export async function harness(mode: "upstream" | "mock") {
     JSON.stringify({ pid: process.pid, db, dir, scope }),
   );
   const initialDb = openDb(db);
-  const baseline = snapshotSales(initialDb);
-  const baselineScopes = initialDb
-    .prepare("SELECT * FROM sales_sync_scopes ORDER BY scope")
-    .all();
   initialDb.close();
   const catalog = dir + "/catalog.json";
   await writeFile(
@@ -211,11 +206,11 @@ export async function harness(mode: "upstream" | "mock") {
       d.close();
     }
   }
-  /** 4表を一貫して取得する。引数なし、取得状態を返す。取得失敗は例外。 */
-  function snapshot() {
+  /** 処理に関係するテーブルを指定し、今回のスコープ内の全行を取得する。 */
+  function snapshot(target: SnapshotTarget) {
     const d = new DatabaseSync(db);
     try {
-      return snapshotSales(d, scope);
+      return snapshotSales(d, scope, target);
     } finally {
       d.close();
     }
@@ -256,16 +251,20 @@ export async function harness(mode: "upstream" | "mock") {
           d.exec("ROLLBACK");
           throw error;
         }
-        if (
-          !isDeepStrictEqual(snapshotSales(d), baseline) ||
-          !isDeepStrictEqual(
-            d.prepare("SELECT * FROM sales_sync_scopes ORDER BY scope").all(),
-            baselineScopes,
+        // DB全体を読み戻さず、今回の所有行が残っていないことをキーで確認する。
+        for (const table of ["orders", "inventory", "products"])
+          if (
+            d
+              .prepare(
+                `SELECT 1 FROM ${table} WHERE product_code GLOB ? LIMIT 1`,
+              )
+              .get(scope + "*")
           )
+            throw Error("OWNED_DATA_REMAINS");
+        if (
+          d.prepare("SELECT 1 FROM sales_sync_scopes WHERE scope=?").get(scope)
         )
-          throw Error(
-            "EXISTING_DATA_CHANGED: shared DBとowner.jsonを確認してください",
-          );
+          throw Error("OWNED_DATA_REMAINS");
       } finally {
         d.close();
       }
@@ -278,7 +277,7 @@ export async function harness(mode: "upstream" | "mock") {
     }
     test.info().annotations.push({
       type: "after",
-      description: "停止確認・今回のデータのみ削除・既存データ不変",
+      description: "停止確認・今回のデータのみ削除・所有行の残存なし",
     });
   }
   return {

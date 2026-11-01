@@ -5,7 +5,7 @@ import { chromium, type Browser } from "@playwright/test";
 import { page as html, script } from "../../../demo/sales/server.ts";
 import { readResponseJson } from "../../aws-sales/response-body.ts";
 
-test("Chrome completes the actual availability request and compares its body before displaying success", async () => {
+test("Chromeで接続確認の実応答を取得・照合してから成功を表示する", async () => {
   let status = 200,
     body: unknown = { available: true },
     requests = 0;

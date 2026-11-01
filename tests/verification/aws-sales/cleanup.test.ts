@@ -9,7 +9,7 @@ for (const mode of [
   "job-failure",
   "success",
 ] as const)
-  test(`cleanup writer barrier: ${mode}`, async () => {
+  test(`後片付け前に書き込み処理の停止を確認する: ${mode}`, async () => {
     const f = fixture(),
       env = new Environment(f.file, f.j),
       calls: string[] = [];

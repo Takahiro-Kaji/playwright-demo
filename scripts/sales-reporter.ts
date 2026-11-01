@@ -44,7 +44,7 @@ export default class SalesReporter implements Reporter {
       (a) => a.type === "case-status",
     )?.description;
     const afterStatus =
-      detail === "停止確認・今回のデータのみ削除・既存データ不変"
+      detail === "停止確認・今回のデータのみ削除・所有行の残存なし"
         ? "confirmed"
         : detail === "要復旧・DB保持" ||
             (prior !== undefined &&

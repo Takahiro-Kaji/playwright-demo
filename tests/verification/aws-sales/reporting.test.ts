@@ -2,7 +2,7 @@ import { test } from "node:test";
 import { strict as a } from "node:assert";
 import Reporter, { ids } from "../../aws-sales/reporter.ts";
 
-test("partial selection, unknown, and After failure cannot become full PASS", async () => {
+test("部分実行・未確認・後処理失敗を全件成功にしない", async () => {
   for (const variant of ["partial", "unknown", "after-failed", "complete"]) {
     const reporter = new Reporter();
     reporter.selected = new Set(variant === "partial" ? ids.slice(0, 1) : ids);

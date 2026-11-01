@@ -2,14 +2,14 @@ import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { spawnSync } from "node:child_process";
 
-test("default Playwright discovery lists seven sales scenarios with three UI error variants", () => {
+test("標準のテスト検出で販売7シナリオとUI・バッチ障害各3種類を列挙する", () => {
   const result = spawnSync(
     process.execPath,
     ["node_modules/@playwright/test/cli.js", "test", "--list"],
     { encoding: "utf8", timeout: 30000 },
   );
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.match(result.stdout, /Total: 9 tests in 3 files/);
+  assert.match(result.stdout, /Total: 11 tests in 3 files/);
   assert.doesNotMatch(
     result.stdout,
     /old\/aws-demo|create-item\.integration\.spec/,
@@ -17,7 +17,7 @@ test("default Playwright discovery lists seven sales scenarios with three UI err
   assert.doesNotMatch(result.stdout, /安全な実行要約/);
 });
 
-test("VS Code extension configuration glob matches only the standard sales entry", async () => {
+test("VS Code拡張の設定パターンは標準の販売テスト設定だけに一致する", async () => {
   const { readdirSync } = await import("node:fs");
   const { join } = await import("node:path");
   const matches: string[] = [];

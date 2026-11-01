@@ -2,12 +2,12 @@
 
 実装は [SalesScenariosTest.java](src/test/java/learning/SalesScenariosTest.java)、プロセスと DB は [SalesHarness.java](src/test/java/learning/SalesHarness.java)、全表の固定期待値は [CatalogCheck.java](src/test/java/learning/CatalogCheck.java) です。TypeScript の対応は [7 ケース教材](../docs/learning/seven-cases.md) と `tests/scenarios/` を参照してください。各ケースは専用 DB を使い、終了時にモック・データを復元し、子プロセスの停止を確認します。
 
-1. `uiReal`: Given F1 を同期し画面を開く。When 接続確認と P001 受注。Then HTTP 201、受注、価格120、在庫4、版2。After プロセス停止。
-2. `uiMock`: Given F1 を同期して商品表示、4表 snapshot、上流503。When 表示済み P001 の受注。Then 502、エラー表示、4表不変。After 上流200へ復元し実 HTTP も確認、停止。
-3. `batchReal`: Given F1 を実 HTTP 取得。When 同期。Then 商品・在庫各2件、注文0件、同期版1を SQL で固定期待値と照合。After 停止。
-4. `batchMock`: Given F1、4表 snapshot と上流503。When 同期。Then 終了非0、4表不変。After 上流復元確認と停止。
+1. `uiReal`: Given データセット1 を同期し画面を開く。When 接続確認と P001 受注。Then HTTP 201、受注、価格120、在庫4、版2。After プロセス停止。
+2. `uiMock`: Given データセット1 を同期して商品表示、4表 snapshot、上流503。When 表示済み P001 の受注。Then 502、エラー表示、4表不変。After 上流200へ復元し実 HTTP も確認、停止。
+3. `batchReal`: Given データセット1 を実 HTTP 取得。When 同期。Then 商品・在庫各2件、注文0件、同期版1を SQL で固定期待値と照合。After 停止。
+4. `batchMock`: Given データセット1、4表 snapshot と上流503。When 同期。Then 終了非0、4表不変。After 上流復元確認と停止。
 5. `syncUi`: Given 固定3000件の版1と版2。When バッチと表示要求、独立 JDBC スレッドの版観測。Then 全表示が版1か版2、DB 全体は版2、同一 HTTP 区間内に版1→2を観測できれば PASS。捕捉できなければ UNCONFIRMED。After 観測証跡保存と停止。実装は [SyncObservation.java](src/test/java/learning/SyncObservation.java)。
-6. `staleOrder`: Given 版1表示後 F2 に同期、4表 snapshot。When 旧画面から受注。Then 409 STALE_VERSION、4表不変。After 停止。
+6. `staleOrder`: Given 版1表示後 データセット2 に同期、4表 snapshot。When 旧画面から受注。Then 409 STALE_VERSION、4表不変。After 停止。
 7. `inconsistentOrder`: Given 表示後 P001 在庫行削除、4表 snapshot。When 受注。Then 409 INCONSISTENT_DATA、4表不変。After 在庫5を復元し確認、停止。
 
 ## Playwright Java API 逆引き
@@ -39,7 +39,7 @@ class AdditionalExampleTest {
         try (SalesHarness h = SalesHarness.open(false)) {
             assertEquals(0, h.batch());
             assertEquals(java.util.List.of(),
-                CatalogCheck.differences(CatalogCheck.f1(), h.snapshot()));
+                CatalogCheck.differences(CatalogCheck.dataset1(), h.snapshot()));
         }
     }
 }

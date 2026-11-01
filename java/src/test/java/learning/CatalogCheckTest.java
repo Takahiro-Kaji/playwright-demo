@@ -5,9 +5,11 @@ import static org.junit.jupiter.api.Assertions.*;
 import java.sql.*;
 import java.util.*;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.DisplayName;
 
 class CatalogCheckTest {
   @Test
+  @DisplayName("SQLで取得したデータの故障を照合で検出する")
   void sqlFaultsAreDetected() throws Exception {
     Class.forName("org.sqlite.JDBC");
     try (Connection c = DriverManager.getConnection("jdbc:sqlite::memory:");
@@ -23,7 +25,7 @@ class CatalogCheckTest {
       s.execute("INSERT INTO products VALUES('P001','ペン',120,1,1),('P002','ノート',300,1,1)");
       s.execute("INSERT INTO inventory VALUES('P001',5),('P002',2)");
       s.execute("INSERT INTO sync_state VALUES(1,1)");
-      assertTrue(CatalogCheck.differences(CatalogCheck.f1(), snapshot(c)).isEmpty());
+      assertTrue(CatalogCheck.differences(CatalogCheck.dataset1(), snapshot(c)).isEmpty());
       // SQL で欠落・重複・余剰・値・関連などを注入し、照合器が検出するか試す。
       String[] faults = {
         "DELETE FROM products WHERE product_code='P001'",
@@ -40,12 +42,12 @@ class CatalogCheckTest {
         // 各故障は独立させ、次の故障注入の前に元の状態へ戻す。
         s.execute("SAVEPOINT inject");
         s.execute(fault);
-        assertFalse(CatalogCheck.differences(CatalogCheck.f1(), snapshot(c)).isEmpty(), fault);
+        assertFalse(CatalogCheck.differences(CatalogCheck.dataset1(), snapshot(c)).isEmpty(), fault);
         s.execute("ROLLBACK TO inject");
         s.execute("RELEASE inject");
       }
       // 明示された削除済み行も在庫ゼロでなければ検出する。
-      var expected = new LinkedHashMap<>(CatalogCheck.f1());
+      var expected = new LinkedHashMap<>(CatalogCheck.dataset1());
       expected.put(
           "products", List.of(List.of("P001", "ペン", 120, 1, 1), List.of("P002", "ノート", 300, 0, 2)));
       expected.put("inventory", List.of(List.of("P001", 5), List.of("P002", 0)));

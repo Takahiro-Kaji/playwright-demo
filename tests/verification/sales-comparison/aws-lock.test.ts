@@ -24,7 +24,7 @@ function fake(query: () => Promise<unknown>) {
     pool: { getConnection: async () => connection } as Pool,
   };
 }
-test("successful lock is returned to pool only after confirmed release", async () => {
+test("ロック解放を確認した後だけ接続をプールに戻す", async () => {
   let count = 0;
   const f = fake(async () => [[count++ ? { released: 1 } : { acquired: 1 }]]);
   const c = await acquireTestLock(f.pool);
@@ -32,12 +32,12 @@ test("successful lock is returned to pool only after confirmed release", async (
   await releaseTestLock(c);
   assert.deepEqual(f.calls, ["release"]);
 });
-test("unavailable lock destroys connection", async () => {
+test("ロックを取得できなければ接続を破棄する", async () => {
   const f = fake(async () => [[{ acquired: 0 }]]);
   await assert.rejects(acquireTestLock(f.pool), /AWS_TEST_LOCK_UNAVAILABLE/);
   assert.deepEqual(f.calls, ["destroy"]);
 });
-test("unknown acquisition destroys connection and preserves error", async () => {
+test("ロック取得が未確認なら接続を破棄しエラーを保持する", async () => {
   const cause = Error("connection lost");
   const f = fake(async () => {
     throw cause;
@@ -45,7 +45,7 @@ test("unknown acquisition destroys connection and preserves error", async () => 
   await assert.rejects(acquireTestLock(f.pool), (e) => e === cause);
   assert.deepEqual(f.calls, ["destroy"]);
 });
-test("unconfirmed release destroys connection and preserves error", async () => {
+test("ロック解放が未確認なら接続を破棄しエラーを保持する", async () => {
   const cause = Error("release failed");
   const f = fake(async () => {
     throw cause;
@@ -56,7 +56,7 @@ test("unconfirmed release destroys connection and preserves error", async () => 
   await assert.rejects(releaseTestLock(g.connection), /AWS_TEST_LOCK_LOST/);
   assert.deepEqual(g.calls, ["destroy"]);
 });
-test("destroy failures do not replace the original query error", async () => {
+test("接続破棄の失敗で元のクエリエラーを上書きしない", async () => {
   const cause = Error("original query failure");
   const connection = {
     query: async () => {
@@ -73,7 +73,7 @@ test("destroy failures do not replace the original query error", async () => {
   await assert.rejects(acquireTestLock(pool), (error) => error === cause);
   await assert.rejects(releaseTestLock(connection), (error) => error === cause);
 });
-test("retained lock is checked on the same session and a lost lease is destroyed", async () => {
+test("保持したロックを同じセッションで確認し失った接続を破棄する", async () => {
   const valid = fake(async () => [[{ held: 1 }]]);
   await verifyTestLock(valid.connection);
   assert.deepEqual(valid.calls, []);

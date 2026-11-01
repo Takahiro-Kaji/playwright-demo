@@ -13,7 +13,7 @@ import { probeOrder } from './order-probe.ts';
 const socket = process.env.TEST_MYSQL_SOCKET, ca = process.env.TEST_MYSQL_CA;
 if (!socket?.startsWith('/tmp/') || !ca?.startsWith('/tmp/')) throw Error('LOCAL_MYSQL_TLS_SETTINGS_REQUIRED');
 
-test('SSO probe uses dedicated user/schema over TLS exec relay and restores actual SQL rows', async () => {
+test('SSO確認はTLS中継で専用ユーザー・スキーマを使い実データを復元する', async () => {
   const f = fixture(), j = f.j;
   const admin = await mysql.createConnection({socketPath:socket, user:'root', multipleStatements:true});
   const oldPath = process.env.PATH, oldSocket = process.env.FAKE_MYSQL_SOCKET;

@@ -13,6 +13,6 @@ Node 26、npm、Google Chromeを準備し `npm install`。`npm run sales:check`�
 
 ## 新規ケースを追加する例
 
-`tests/scenarios/ui/` に新しい `*.spec.ts` を置き、`test.step` でGiven／When／Then／Afterを記述する。例えばF1同期後に商品表示を押し、`getByRole('button', {name:'商品表示'})` と `expect` でP001の表示を確認する。期待値は操作前に固定し、`finally` でハーネスのプロセスを回収する。`npm run sales:test:ui` で実行し、失敗時もAfterを確認する。DBを変更する場合は変更前状態・復元と検証を追加する。[チェックリスト](new-case-checklist.md)も参照。
+`tests/scenarios/ui/` に新しい `*.spec.ts` を置き、`test.step` でGiven／When／Then／Afterを記述する。例えばデータセット1同期後に商品表示を押し、`getByRole('button', {name:'商品表示'})` と `expect` でP001の表示を確認する。期待値は操作前に固定し、`finally` でハーネスのプロセスを回収する。`npm run sales:test:ui` で実行し、失敗時もAfterを確認する。DBを変更する場合は変更前状態・復元と検証を追加する。[チェックリスト](new-case-checklist.md)も参照。
 
 実SSOは認可されたHTTPS開始URLを `SALES_AUTH_URL`、認証後URLを `SALES_AUTH_SUCCESS_URL`、認証済み画面の可視locatorを `SALES_AUTH_SUCCESS_SELECTOR`、`.local/auth/` 下のJSONパスを `SALES_AUTH_STATE` に指定し、対話端末で `npm run sales:auth:setup` を起動する。Chromeでの認証は利用者が操作する。URLに認証コードやトークンを含めない。

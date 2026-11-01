@@ -9,7 +9,7 @@ import {
   validateCatalog,
 } from "../../../demo/sales/db.ts";
 import { fixture } from "../../../demo/sales/server.ts";
-test("sync and order enforce atomic version and relationship", () => {
+test("同期と受注でversionと関連データを一括更新する", () => {
   const dir = `.local/sales-learning/${randomUUID()}`;
   mkdirSync(dir, { recursive: true });
   const db = openDb(`${dir}/sales.sqlite`);

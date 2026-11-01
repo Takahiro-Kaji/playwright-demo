@@ -47,13 +47,13 @@ function setup() {
   return { ...f, target, calls, opts, create, connection };
 }
 
-test('journal is mandatory; direct DB environment variables cannot enable a fallback', async () => {
+test('復旧記録を必須としDB環境変数による代替接続を許可しない', async () => {
   const f = setup();
   try { await assert.rejects(withProbeDatabase(undefined, f.target, async () => assert.fail()), /PROBE_JOURNAL_REQUIRED/); }
   finally { f.close(); }
 });
 
-test('owned target retains one locked connection through probe and After, then closes tunnel and journal lock', async () => {
+test('所有対象の確認と後処理を同じロック付き接続で行いトンネルと記録ロックを閉じる', async () => {
   const f = setup();
   try {
     await withProbeDatabase(f.file, f.target, async db => {
@@ -71,7 +71,7 @@ test('owned target retains one locked connection through probe and After, then c
   } finally { f.close(); }
 });
 
-for (const field of ['target', 'expected', 'state', 'cognitoDomain'] as const) test(`rejects mismatched ${field} before external access`, async () => {
+for (const field of ['target', 'expected', 'state', 'cognitoDomain'] as const) test(`外部アクセス前に ${field} の不一致を拒否する`, async () => {
   const f = setup();
   try {
     await assert.rejects(withProbeDatabase(f.file, {...f.target, [field]:'other'}, async () => assert.fail(), f.create), /PROBE_DATABASE_OR_CHECK_FAILED/);
@@ -79,13 +79,13 @@ for (const field of ['target', 'expected', 'state', 'cognitoDomain'] as const) t
   } finally { f.close(); }
 });
 
-for (const change of [{blocked:true}, {phase:'new'}, {dbOwned:false}, {dbCreated:false}, {userCreated:false}]) test(`rejects unready journal ${JSON.stringify(change)}`, () => {
+for (const change of [{blocked:true}, {phase:'new'}, {dbOwned:false}, {dbCreated:false}, {userCreated:false}]) test(`未準備の復旧記録を拒否する ${JSON.stringify(change)}`, () => {
   const f = setup();
   try { assert.throws(() => checkProbeTarget({...f.j, ...change}, f.target), /PROBE_JOURNAL_NOT_READY/); }
   finally { f.close(); }
 });
 
-for (const change of [{db:'integration_demo'}, {principal:'admin@%'}, {owner:'wrong'}, {permission:false}, {verify:false}, {acquired:0}]) test(`rejects target/ownership/permission/lock failure ${JSON.stringify(change)}`, async () => {
+for (const change of [{db:'integration_demo'}, {principal:'admin@%'}, {owner:'wrong'}, {permission:false}, {verify:false}, {acquired:0}]) test(`対象・所有権・権限・ロックの不正を拒否する ${JSON.stringify(change)}`, async () => {
   const f = setup();
   try {
     Object.assign(f.opts, change);
@@ -100,7 +100,7 @@ for (const change of [{db:'integration_demo'}, {principal:'admin@%'}, {owner:'wr
   } finally { f.close(); }
 });
 
-test('preserves probe and cleanup errors, blocks journal, and closes connection', async () => {
+test('確認と後片付けのエラーを保持し復旧記録を停止状態にして接続を閉じる', async () => {
   const f = setup();
   try {
     await assert.rejects(withProbeDatabase(f.file, f.target, async () => {
@@ -113,7 +113,7 @@ test('preserves probe and cleanup errors, blocks journal, and closes connection'
   } finally { f.close(); }
 });
 
-test('lost DB lock cannot pass and destroys session', async () => {
+test('DBロックを失ったら成功とせずセッションを破棄する', async () => {
   const f = setup(); f.opts.released = 0;
   try {
     await assert.rejects(withProbeDatabase(f.file, f.target, async () => {}, f.create));
@@ -122,13 +122,13 @@ test('lost DB lock cannot pass and destroys session', async () => {
   } finally { f.close(); }
 });
 
-test('concurrent journal operation is rejected before any external access', async () => {
+test('復旧記録への同時操作を外部アクセス前に拒否する', async () => {
   const f = setup(), unlock = exclusive(f.file);
   try { await assert.rejects(withProbeDatabase(f.file, f.target, async () => assert.fail(), f.create)); assert.deepEqual(f.calls, []); }
   finally { unlock(); f.close(); }
 });
 
-for (const error of [Object.assign(Error('socket reset'), {code:'ECONNRESET'}), Error('unclassified release failure')]) test(`lock release failure retains recovery state: ${error.message}`, async () => {
+for (const error of [Object.assign(Error('socket reset'), {code:'ECONNRESET'}), Error('unclassified release failure')]) test(`ロック解放失敗時は要復旧の状態を保持する: ${error.message}`, async () => {
   const f = setup(); f.opts.releaseError = error;
   try {
     await assert.rejects(withProbeDatabase(f.file, f.target, async () => {}, f.create));
@@ -140,7 +140,7 @@ for (const error of [Object.assign(Error('socket reset'), {code:'ECONNRESET'}), 
   } finally { f.close(); }
 });
 
-test('pool shutdown failure retains recovery state after successful probe and lock release', async () => {
+test('確認とロック解放が成功してもプール終了失敗時は要復旧のままにする', async () => {
   const f = setup(); f.opts.closeError = Error('unclassified shutdown failure');
   try {
     await assert.rejects(withProbeDatabase(f.file, f.target, async () => {}, f.create));
@@ -150,7 +150,7 @@ test('pool shutdown failure retains recovery state after successful probe and lo
   } finally { f.close(); }
 });
 
-test('unknown probe failure retains recovery state without matching error names', async () => {
+test('未知の確認エラーでもエラー名に依存せず要復旧の状態を保持する', async () => {
   const f = setup();
   try {
     await assert.rejects(withProbeDatabase(f.file, f.target, async () => { throw Error('unknown failure'); }, f.create));
@@ -159,7 +159,7 @@ test('unknown probe failure retains recovery state without matching error names'
   } finally { f.close(); }
 });
 
-test('SIGKILL during probe leaves recovery required even after stale lock removal', { timeout: 10_000 }, async () => {
+test('確認中の強制終了後は古いロックを削除しても要復旧のままにする', { timeout: 10_000 }, async () => {
   const f = setup();
   const child = fork(new URL('./order-probe-crash.fixture.ts', import.meta.url), [f.file], {execArgv:[], stdio:['ignore','ignore','ignore','ipc']});
   const exited = once(child, 'exit');

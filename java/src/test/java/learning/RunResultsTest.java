@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import java.util.*;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.DisplayName;
 
 class RunResultsTest {
   private Map<String, Map<String, String>> passingCases() {
@@ -14,6 +15,7 @@ class RunResultsTest {
   }
 
   @Test
+  @DisplayName("既知の7ケースが揃った場合だけ全件成功にする")
   void onlyTheSevenKnownCasesCanAllPass() {
     var cases = passingCases();
     assertEquals("all", RunResults.scope(cases));
@@ -30,6 +32,7 @@ class RunResultsTest {
   }
 
   @Test
+  @DisplayName("未実行ケースがあっても失敗を隠さない")
   void failureIsNeverHiddenByAnUnrunCase() {
     var cases = passingCases();
     cases.get("ui-real").put("case", "NOT_RUN");
@@ -47,6 +50,7 @@ class RunResultsTest {
   }
 
   @Test
+  @DisplayName("未確認と部分実行を成功にしない")
   void unconfirmedAndPartialNeverBecomePass() {
     var cases = passingCases();
     cases.get("ui-real").put("case", "NOT_RUN");

@@ -9,7 +9,7 @@ const response = (
 ) => ({ finished, text }) as Response;
 const never = () => new Promise<never>(() => {});
 
-test("body deadline distinguishes missing completion from stalled body retrieval", async () => {
+test("本文取得の期限判定で完了通知の欠落と取得の停止を区別する", async () => {
   let read = false;
   await a.rejects(
     readResponseJson(
@@ -33,7 +33,7 @@ test("body deadline distinguishes missing completion from stalled body retrieval
   );
 });
 
-test("completion errors, body errors and invalid JSON retain only safe codes", async () => {
+test("完了通知・本文取得の失敗と不正JSONでは安全なコードだけを保持する", async () => {
   for (const finished of [
     async () => Error("secret"),
     async () => {
@@ -78,7 +78,7 @@ test("completion errors, body errors and invalid JSON retain only safe codes", a
   );
 });
 
-test("a late body rejection after the deadline is handled", async () => {
+test("期限後に応答本文の取得が失敗しても処理する", async () => {
   let reject!: (error: Error) => void;
   const pending = new Promise<string>((_, no) => {
     reject = no;
