@@ -4,6 +4,7 @@
 
 > **全体分類（1枚）：[結合試験の分類サマリー](docs/integration-test-overview-onepage.md)**
 > 試験目的・実データ取り込みの照合設計・完成条件：**[結合試験の設計方針](docs/integration-test-strategy.md)**
+> ローカルUIのSSO（MFAなし・共通実行前提、実機未検証）：**[認証状態再利用の合意方針・再検討条件](docs/local-ui-sso-authentication.md)**
 > 複数の同期バッチとUIの連携、部分失敗、データ不整合、同期中操作：**[機能横断シナリオ試験・システム整合性検証方針](docs/cross-feature-system-scenarios.md)**
 >
 > **試験の実行場所:** Playwright（Google Chrome）、`kubectl`、`curl`、MySQL照会は手元PC。AWSのEKS・RDS・外部接続は検証対象。巨大GETで取得する**社内公開情報**は、Git対象外の社内PCローカル領域（例：`.local/snapshots/`）へ一時保存し、試験終了後に削除する。**マスキングやS3への保存は不要。**
