@@ -11,6 +11,7 @@ function fakeDb(failCleanup = false) {
       const sql = options.sql;
       if (sql === 'START TRANSACTION') { begun++; return [[]]; }
       if (sql === 'COMMIT' || sql === 'ROLLBACK') return [[]];
+      if (sql.includes('sync_state') || sql.includes('aws_test_owner')) return [[]];
       if (sql.includes('sales_lock')) return [[{id:1}]];
       if (sql.includes('FROM orders')) return [orders ? [{order_id:'test'}] : []];
       if (sql.includes('FROM products')) return [product ? [{product_code:code}] : []];

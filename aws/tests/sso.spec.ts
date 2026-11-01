@@ -1,6 +1,7 @@
 import { test, expect, request } from '@playwright/test';
 import { awsSsoConfig } from '../../tests/aws-sales/config.ts';
-import { openProbeDatabase, probeOrder } from './order-probe.ts';
+import { probeOrder } from './order-probe.ts';
+import { withProbeDatabase } from './probe-database.ts';
 
 // Given: 未認証。 When: UI を開く。 Then: Cognito へ。 After: context を閉じる。
 test('未認証 UI は Cognito に遷移する', async ({ browser }) => {
@@ -16,16 +17,14 @@ test('未認証受注は処理されず DB を復元する', async () => {
   test.setTimeout(300_000);
   const c = awsSsoConfig();
   const anon = await request.newContext({ maxRedirects: 0 });
-  let db: Awaited<ReturnType<typeof openProbeDatabase>> | undefined;
   try {
-    try { db = await openProbeDatabase(); } catch { throw Error("PROBE_DB_CONNECTION_FAILED"); }
-    await probeOrder(db, async code => {
+    await withProbeDatabase(process.env.AWS_SSO_JOURNAL, c, db => probeOrder(db, async code => {
       const response = await anon.post(new URL('/api/orders', c.target).href, { timeout: 15_000, data: { productCode: code, quantity: 1, version: 1 } });
       if (response.status() !== 302) throw Error('UNEXPECTED_STATUS');
       const location = new URL(response.headers().location);
       if (location.protocol !== 'https:' || location.hostname !== c.cognitoDomain || location.pathname !== '/oauth2/authorize') throw Error('UNEXPECTED_REDIRECT');
-    });
-  } finally { await anon.dispose(); if (db) await db.end(); }
+    }));
+  } finally { await anon.dispose(); }
 });
 
 // Given: 保存済み認証。 When: 新 context で画面と API を利用。 Then: 商品表示。 After: context を閉じる。

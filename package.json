@@ -9,7 +9,7 @@
     "test:integration:headed": "playwright test -c sales.config.ts --headed",
     "test:list": "playwright test -c sales.config.ts --list --reporter=list",
     "test:syntax": "npm run sales:check",
-    "sales:check": "tsc --noEmit --module esnext --moduleResolution bundler --target es2022 --types node --allowImportingTsExtensions --skipLibCheck demo/sales/*.ts test-support/*.ts test-support/auth/*.ts tests/targets/sales/*.ts tests/scenarios/*/*.ts tests/verification/*/*.ts tests/real-app/*.ts aws/sales/*.ts tests/aws-sales/*.ts tests/verification/aws-sales/*.ts aws/tests/mysql*.test.ts aws/tests/local*.ts",
+    "sales:check": "tsc --noEmit --module esnext --moduleResolution bundler --target es2022 --types node --allowImportingTsExtensions --skipLibCheck demo/sales/*.ts test-support/*.ts test-support/auth/*.ts tests/targets/sales/*.ts tests/scenarios/*/*.ts tests/verification/*/*.ts tests/real-app/*.ts aws/sales/*.ts tests/aws-sales/*.ts tests/verification/aws-sales/*.ts aws/tests/mysql*.test.ts aws/tests/local*.ts aws/tests/order-probe*.ts aws/tests/probe-database.ts aws/tests/sso*.ts",
     "sales:test:unit": "node --test tests/verification/sales-demo/*.test.ts tests/verification/support/*.test.ts tests/verification/auth/*.test.ts",
     "sales:test:verification": "node --test tests/verification/sales-comparison/*.test.ts",
     "sales:test:ui": "playwright test -c sales.config.ts tests/scenarios/ui",
@@ -23,7 +23,7 @@
     "aws-sales:manage": "node tests/aws-sales/manage.ts",
     "aws-sales:list": "playwright test -c tests/aws-sales/aws-sales.config.ts --list",
     "aws-sales:sso": "playwright test -c aws/tests/sso.config.ts",
-    "aws-sales:verify": "node --test tests/verification/aws-sales/*.test.ts",
+    "aws-sales:verify": "node --test tests/verification/aws-sales/*.test.ts aws/tests/order-probe*.test.ts",
     "aws-sales:local": "playwright test -c tests/aws-sales/local.config.ts",
     "aws-sales:run": "node tests/aws-sales/run.ts"
   },

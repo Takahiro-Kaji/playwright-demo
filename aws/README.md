@@ -28,6 +28,8 @@ Terraform、AWS CLI、Docker、kubectl、Node 26以上、Google Chromeが必要�
 ## SSO試験
 
 ```sh
+# 先に AWS業務7ケースの手順で専用環境をprepareし、DNS/checkを完了する。
+export AWS_SSO_JOURNAL='.local/aws-sales/tokyo-journal.json'
 export SALES_AUTH_ENABLED=1
 export SALES_AUTH_URL='https://ui.example.com/'
 export SALES_AUTH_SUCCESS_URL="$SALES_AUTH_URL"
@@ -38,7 +40,7 @@ npm run sales:auth:setup
 npm run aws-sales:sso
 ```
 
-実際の UI URL と Cognito ドメインに差し替え、下記の DB 接続設定を用意して各リージョンで実行する。認証セットアップは手動ログイン後、別コンテキストとChrome再起動後の再利用を確認する。試験は未認証の画面と受注 API が Cognito に遷移すること、保存状態で販売管理画面と商品 API を利用できることを確認する。専用 DB 商品を作成し、未認証受注後にその商品に受注が存在しないことを確認し、想定外の受注も含め専用行を削除し全受注・商品・在庫を事前状態と照合する。失敗時も後片付けを試み、後片付け失敗は別に報告する。両リージョンで他の受注と同期を停止し、専用検証 DB で実行する。状態なしの新規 context は再認証を要求する。期限切れの状態は検証していない。trace・動画・スクリーンショットは無効。状態ファイルは機密情報として扱う。
+実際の UI URL・認証状態ファイル・Cognito ドメインはjournalの設定と一致させ、各リージョンで実行する。認証セットアップは手動ログイン後、別コンテキストとChrome再起動後の再利用を確認する。試験は未認証の画面と受注 API が Cognito に遷移すること、保存状態で販売管理画面と商品 API を利用できることを確認する。専用 DB 商品を作成し、未認証受注後にその商品に受注が存在しないことを確認し、想定外の受注も含め専用行を削除し全受注・商品・在庫・同期状態・ロック行・DB所有マーカーを事前状態と照合する。失敗時も後片付けを試み、後片付け失敗は別に報告する。両リージョンで他の受注と同期を停止し、専用検証 DB で実行する。状態なしの新規 context は再認証を要求する。期限切れの状態は検証していない。trace・動画・スクリーンショットは無効。状態ファイルは機密情報として扱う。
 
 ローカル版の7ケースは専用SQLite・ローカルプロセスを使うため、このAWS環境を自動的に試験しない。AWS向け業務7ケース・専用DB・Job・復元の実行入口は [AWS業務7ケース](../tests/aws-sales/README.md) を参照する。実AWSの実行は未検証。
 
@@ -50,7 +52,9 @@ npm run aws-sales:sso
 
 手動認証と再利用の検証は次の順で行う。Given: 保存状態なし、When: 上記 `sales:auth:setup` で Chrome を開き手動ログイン、Then: 指定画面を確認して保存し、別 context と Chrome 終了・再起動後の context の両方で同画面を確認する。After: 各 context と Chrome を閉じる。状態は `.local/` 内に保存され mode 600、ディレクトリ作成時 mode 700。試験終了後にローカルの状態ファイルを削除する。状態なしの別 context の再認証は AWS 試験の未認証 UI ケースで確認する。
 
-未認証受注テストは `AWS_SSO_DB_HOST`、`AWS_SSO_DB_USER`、`AWS_SSO_DB_PASSWORD`、`AWS_SSO_DB_CA_FILE` を安全に設定し、専用 DB への TLS 検証付き接続を必要とする。DB ユーザーには sales_lock のロック、products・inventory・orders の SELECT、専用行の INSERT と DELETE 権限が必要。接続経路・CA・データの取り扱いは事前に確認する。テスト前後に次の全行を比較する。結果や認証情報をログに出さない。
+未認証受注テストは `AWS_SSO_JOURNAL` を必須とする。`manage prepare` で作成したprepared・未blockedのjournalを指定する。従来の `AWS_SSO_DB_*` は使用せず、journalの実行専用DB名・専用ユーザー・CAを使用する。AWS identity/context、namespace/PodのラベルとUID、Secret/CA、DNS→ALB→Ingress→Service→アプリPod→DB設定を既存 `verifyTarget()` で照合する。さらに実際に試験する同一MySQLセッションでDB名・実効ユーザー・DB所有マーカーを確認する。private RDSには所有確認済みbridge Podと非TTY `kubectl exec -i` で中継し、ローカルmysql2でCA・RDSホスト名を検証する。公開RDS、TLS無効化、管理ユーザー、通常/shared DBへのフォールバックはない。
+
+journalの排他と既存業務試験と共通のDB advisory lockをAfter完了まで保持する。接続・権限・所有不一致は失敗となり、秘密を含まないエラーコードだけを報告する。DB接続確認を含む操作の前に `blocked=true / phase=recovery-required` を保存し、試験・復元・ロック解放・接続終了のすべてが正常完了した場合だけ `prepared / blocked=false` に戻す。強制終了や失敗時はエラー名に関係なく復旧必要状態を保持する。排他ファイルのunlockだけでは再実行できないため、[recover/cleanup手順](../tests/aws-sales/README.md)で復旧する。同じjournalを別worktreeへコピーして並行実行しない。回復時も当該journalの所有確認済み専用DBのみを対象にする。テスト前後に次の全行とsync_state・sales_lock・aws_test_ownerを比較する。結果や認証情報をログに出さない。
 
 ```sql
 SELECT order_id, product_code, quantity, unit_price, status FROM orders ORDER BY order_id;
