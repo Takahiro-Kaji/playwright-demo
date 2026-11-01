@@ -14,9 +14,9 @@ aws-sales/
 ├── aws-sales.config.ts / local.config.ts
 ├── config.example.json
 ├── scenarios/                        業務7ケースのGiven / When / Then
-│   ├── ui/
-│   ├── batch/
-│   └── cross-feature/
+│   ├── 01-ui/
+│   ├── 02-batch/
+│   └── 03-cross-feature/
 ├── support/                          Playwrightへの接続とケース共通操作
 │   ├── fixtures.ts / harness.ts / harness-session.ts
 │   ├── operations.ts / response-body.ts / polling.ts
@@ -121,7 +121,7 @@ npm run aws-sales:manage -- cleanup .local/aws-sales/tokyo-run.json
 
 ## ケース別の流れ
 
-UIケースは認証とURL/ALBを含む対象確認を行い、バッチケースはブラウザーなしでDB/Kubernetesの対象確認を行う。各ケースは共通Givenで設定・対象・所有確認を済ませ、今回DBの4表を空にする。既存業務データの初期化はしない。共通Afterは全件データセット1と通常IFを復元して確認する。テストは1 worker・retryなし・最初の失敗で停止。ファイル分割後の実行順はバッチ → 横断 → UI（`--list` で確認可能）。各ケースは共通Given/Afterで独立させる。
+UIケースは認証とURL/ALBを含む対象確認を行い、バッチケースはブラウザーなしでDB/Kubernetesの対象確認を行う。各ケースは共通Givenで設定・対象・所有確認を済ませ、今回DBの4表を空にする。既存業務データの初期化はしない。共通Afterは全件データセット1と通常IFを復元して確認する。テストは1 worker・retryなし・最初の失敗で停止。実行順はUI → バッチ → 横断で、各分類内はケースID順（`--list` で確認可能）。各ケースは共通Given/Afterで独立させる。
 
 - **UI-01「UI正常・学習用通常HTTP IFと受注」**：Given `batch()` → `compareMysql(データセット1)`。When `availability()` → `show()` → `order()`。Then 201・UUID・画面成功・固定単価/数量、在庫4/version2とP002不変を含む4表全件照合。After 共通復元。
 - **UI-02「UIモック503・DB不変」**：Given `upstream.useFixture("f1", "mock")` → `batch()` → 固定データセット1照合 → `snapshotMysql()` → 元status退避 → `upstream.mockStatus(503)` → `upstream.verifyFixture("f1", 503)`。When 画面接続確認。Then 502・外部エラー・4表不変。After status元値とHTTP確認 → 共通復元。
@@ -136,6 +136,8 @@ UIケースは認証とURL/ALBを含む対象確認を行い、バッチケー�
 ## 判定・復旧
 
 `npm run aws-sales:manage -- summary JOURNAL` でも秘密を除いたケース結果を確認できる。`support/reporter.ts` の `.local/aws-sales-evidence/*.json` は選択範囲、ケース判定、After判定を別々に記録する。7件すべてpassedかつAfter confirmedのときだけ `allSevenPassed=true`。個別実行や未確認は全7件PASSにならない。journalには実行ID、所有UID、状態、ケース結果、数値時系列だけを保持し、生レスポンス・DB全件・Cookieを出さない。journal自身は専用DBパスワード等を含むのでmode600の秘密ファイルとして扱う。
+
+AWS・localとも実行順は UI-01、UI-02、BATCH-01、BATCH-02、CROSS-01、CROSS-02、CROSS-03。CROSS-01が未確認の場合は業務判定をunconfirmedと記録し、Playwright上はskipとしてAfterを実行する。After成功時のみ後続を実行し、未確認を含む選択実行全体はreporterが非ゼロにする。業務失敗やAfter失敗は `maxFailures=1` で後続を停止する。証拠JSONの `execution` はreporterの最終判定前のPlaywright実行状態であり、選択範囲の成否は `selectedPassed` を参照する。
 
 Afterが失敗するとjournalがblockedになり、その後の試験は初期化前に拒否される。元のbusiness verdictとAfter failed、個別エラーコードを保持する。復元処理は失敗した箇所以外も試み、Job停止不明ならDBをresetしない。
 

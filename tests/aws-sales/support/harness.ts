@@ -38,9 +38,9 @@ export async function business(h: BaseHarness, fn: () => Promise<void>) {
     h.codes.push(
       ...(e instanceof Unconfirmed ? ["OVERLAP_UNCONFIRMED"] : errorCodes(e)),
     );
-    throw Error(
-      h.verdict === "unconfirmed" ? "AWS_CASE_UNCONFIRMED" : "AWS_CASE_FAILED",
-    );
+    if (e instanceof Unconfirmed)
+      base.skip(true, "Business result unconfirmed");
+    throw Error("AWS_CASE_FAILED");
   }
 }
 export function createHarnessTests(

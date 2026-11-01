@@ -15,65 +15,6 @@ import { assertCondition } from "../../environment/state.ts";
 import { snapshotMysql } from "../../database/rows.ts";
 import { batch, equal, verify } from "../../support/operations.ts";
 
-test("CROSS-02 古いversionによる受注拒否", async ({ uiHarness: h }) => {
-  await business(h, async () => {
-    let before: unknown;
-    await test.step("Given: データセット1表示を保持してデータセット2同期・固定照合", async () => {
-      await batch(h);
-      await verify(h, "f1");
-      await show(h);
-      await h.env.upstream.useFixture("f2");
-      await batch(h);
-      await verify(h, "f2");
-      before = await snapshotMysql(h.db);
-    });
-    await test.step("When: 古い画面から受注", () =>
-      order(
-        h,
-        409,
-        { error: "STALE_VERSION" },
-        "情報が更新されました。再表示してください",
-      ).then(() => {}));
-    await test.step("Then: 4表全件不変", async () =>
-      equal(await snapshotMysql(h.db), before, "UNEXPECTED_DB_MUTATION"));
-  });
-});
-
-test("CROSS-03 不整合情報による受注拒否・復元", async ({ uiHarness: h }) => {
-  await business(h, async () => {
-    let before: unknown;
-    {
-      await test.step("Given: データセット1表示後に専用DBの在庫行を欠落", async () => {
-        await batch(h);
-        await verify(h, "f1");
-        await show(h);
-        h.afterActions.push(() =>
-          test.step("After: 欠落在庫を復元し固定データセット1を全件照合", async () => {
-            await h.db.execute(
-              "INSERT INTO inventory(product_code,quantity) VALUES (?,?) ON DUPLICATE KEY UPDATE quantity=VALUES(quantity)",
-              ["P001", 5],
-            );
-            await verify(h, "f1");
-          }),
-        );
-        await h.db.execute("DELETE FROM inventory WHERE product_code=?", [
-          "P001",
-        ]);
-        before = await snapshotMysql(h.db);
-      });
-      await test.step("When: 表示済み商品を受注", () =>
-        order(
-          h,
-          409,
-          { error: "INCONSISTENT_DATA" },
-          "商品情報に不整合があります",
-        ).then(() => {}));
-      await test.step("Then: 4表全件不変", async () =>
-        equal(await snapshotMysql(h.db), before, "UNEXPECTED_DB_MUTATION"));
-    }
-  });
-});
-
 test("CROSS-01 同期中UI・3000件全表示と独立DB観測", async ({
   uiHarness: h,
 }) => {
@@ -257,6 +198,65 @@ test("CROSS-01 同期中UI・3000件全表示と独立DB観測", async ({
         established: hasObservedOverlap(attempts, samples),
       };
       // 失敗は上で処理済み、または外側のテスト本体へ伝播する。
+    }
+  });
+});
+
+test("CROSS-02 古いversionによる受注拒否", async ({ uiHarness: h }) => {
+  await business(h, async () => {
+    let before: unknown;
+    await test.step("Given: データセット1表示を保持してデータセット2同期・固定照合", async () => {
+      await batch(h);
+      await verify(h, "f1");
+      await show(h);
+      await h.env.upstream.useFixture("f2");
+      await batch(h);
+      await verify(h, "f2");
+      before = await snapshotMysql(h.db);
+    });
+    await test.step("When: 古い画面から受注", () =>
+      order(
+        h,
+        409,
+        { error: "STALE_VERSION" },
+        "情報が更新されました。再表示してください",
+      ).then(() => {}));
+    await test.step("Then: 4表全件不変", async () =>
+      equal(await snapshotMysql(h.db), before, "UNEXPECTED_DB_MUTATION"));
+  });
+});
+
+test("CROSS-03 不整合情報による受注拒否・復元", async ({ uiHarness: h }) => {
+  await business(h, async () => {
+    let before: unknown;
+    {
+      await test.step("Given: データセット1表示後に専用DBの在庫行を欠落", async () => {
+        await batch(h);
+        await verify(h, "f1");
+        await show(h);
+        h.afterActions.push(() =>
+          test.step("After: 欠落在庫を復元し固定データセット1を全件照合", async () => {
+            await h.db.execute(
+              "INSERT INTO inventory(product_code,quantity) VALUES (?,?) ON DUPLICATE KEY UPDATE quantity=VALUES(quantity)",
+              ["P001", 5],
+            );
+            await verify(h, "f1");
+          }),
+        );
+        await h.db.execute("DELETE FROM inventory WHERE product_code=?", [
+          "P001",
+        ]);
+        before = await snapshotMysql(h.db);
+      });
+      await test.step("When: 表示済み商品を受注", () =>
+        order(
+          h,
+          409,
+          { error: "INCONSISTENT_DATA" },
+          "商品情報に不整合があります",
+        ).then(() => {}));
+      await test.step("Then: 4表全件不変", async () =>
+        equal(await snapshotMysql(h.db), before, "UNEXPECTED_DB_MUTATION"));
     }
   });
 });
