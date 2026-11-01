@@ -1,2 +1,23 @@
-import {test} from 'node:test';import {strict as assert} from 'node:assert';import {validateAuthConfig} from '../../../test-support/auth/setup.ts';
-test('authentication state is local and URLs contain no secrets',()=>{assert.ok(validateAuthConfig('.local/auth/user.json','https://example.test/app').path.endsWith('user.json'));assert.throws(()=>validateAuthConfig('/tmp/user.json','https://example.test'));assert.throws(()=>validateAuthConfig('.local/auth/user.json','https://example.test/?token=secret'));assert.throws(()=>validateAuthConfig('.local/auth/user.json','http://example.test'));});
+import { test } from "node:test";
+import { strict as assert } from "node:assert";
+import { validateAuthConfig } from "../../../test-support/auth/setup.ts";
+test("authentication state is local and URLs contain no secrets", () => {
+  assert.ok(
+    validateAuthConfig(
+      ".local/auth/user.json",
+      "https://example.test/app",
+    ).path.endsWith("user.json"),
+  );
+  assert.throws(() =>
+    validateAuthConfig("/tmp/user.json", "https://example.test"),
+  );
+  assert.throws(() =>
+    validateAuthConfig(
+      ".local/auth/user.json",
+      "https://example.test/?token=secret",
+    ),
+  );
+  assert.throws(() =>
+    validateAuthConfig(".local/auth/user.json", "http://example.test"),
+  );
+});

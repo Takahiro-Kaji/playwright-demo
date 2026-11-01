@@ -23,6 +23,7 @@
     "@playwright/test": "^1.56.0",
     "@types/node": "^26.6.6",
     "dotenv": "^16.6.1",
+    "prettier": "^3.9.10",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
   },
