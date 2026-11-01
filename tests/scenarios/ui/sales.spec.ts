@@ -10,9 +10,9 @@ test("UI real learning HTTP success", async ({ page }) => {
       await page.goto(h.app);
     });
     await test.step("When: 接続確認とP001の受注", async () => {
-      await page.locator("#availability").click();
+      await page.getByRole("button", { name: "外部接続確認" }).click();
       await expect(page.locator("#availability-result")).toHaveText("接続可能");
-      await page.locator("#refresh").click();
+      await page.getByRole("button", { name: "商品表示" }).click();
       const response = page.waitForResponse((r) =>
         r.url().endsWith("/api/orders"),
       );
@@ -66,7 +66,7 @@ test("UI mock upstream unavailable", async ({ page }) => {
       const response = page.waitForResponse((r) =>
         r.url().endsWith("/api/availability"),
       );
-      await page.locator("#availability").click();
+      await page.getByRole("button", { name: "外部接続確認" }).click();
       expect((await response).status()).toBe(502);
     });
     await test.step("Then: エラー表示とDB不変", async () => {

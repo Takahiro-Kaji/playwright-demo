@@ -28,7 +28,14 @@ test("batch real learning HTTP matches all rows", async () => {
     await test.step("Then: SQL取得から全件照合", async () => {
       const db = new DatabaseSync(h.db);
       try {
-        expect(compareCatalog(db, expected)).toEqual([]);
+        expect(
+          compareCatalog(db, {
+            products: expected.map((p) => ({ ...p, version: 1 })),
+            deleted: [],
+            catalogVersion: 1,
+            orders: [],
+          }),
+        ).toEqual([]);
       } finally {
         db.close();
       }
