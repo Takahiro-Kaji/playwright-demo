@@ -1,0 +1,57 @@
+// Verification only: real production fixture + local fake DB/cluster and a routed Chrome page.
+import { test as production, business } from "../../aws-sales/harness.ts";
+import { Environment } from "../../aws-sales/lifecycle.ts";
+import { loadJournal } from "../../aws-sales/environment.ts";
+import { writeFileSync } from "node:fs";
+Environment.prototype.verifyTarget = async () => {};
+Environment.prototype.pool = async () =>
+  ({
+    getConnection: async () => ({
+      query: async (sql: string) => [
+        [
+          sql.includes("GET_LOCK")
+            ? { acquired: 1 }
+            : sql.includes("RELEASE_LOCK")
+              ? { released: 1 }
+              : { held: 1 },
+        ],
+      ],
+      release() {},
+      destroy() {},
+    }),
+    end: async () => {},
+  }) as any;
+Environment.prototype.dbOwner = async () => {};
+Environment.prototype.catalog = async () => {};
+Environment.prototype.reset = async () => {};
+Environment.prototype.restore = async () => {
+  throw Error("INJECTED_RESTORE_FAILURE");
+};
+const test = production.extend({
+  browser: async ({ browser }, use) => {
+    const original = browser.newContext.bind(browser);
+    browser.newContext = async (options) => {
+      const context = await original(options);
+      await context.route("https://test.example.com/**", (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "text/html",
+          body: '<button id="refresh">商品表示</button>',
+        }),
+      );
+      return context;
+    };
+    try {
+      await use(browser);
+    } finally {
+      browser.newContext = original;
+    }
+  },
+});
+test("UI-01 injected body and After", async ({ h }) =>
+  business(h, async () => {
+    if (process.env.INJECT_BODY === "1") throw Error("INJECTED_BODY_FAILURE");
+  }));
+test("UI-02 must not execute after restoration failure", async () => {
+  writeFileSync(process.env.STOP_MARKER!, "unexpected");
+});

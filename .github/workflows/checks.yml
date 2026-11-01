@@ -17,6 +17,8 @@ jobs:
         run: npm run test:syntax
       - name: Unit and verification tests
         run: npm run test:unit
+      - name: AWS orchestration verification (no AWS calls)
+        run: npm run aws-sales:verify && npm run aws-sales:list
       - name: List seven scenarios
         run: npm run test:list
       - name: Local Chrome scenarios (unconfirmed is nonzero)

@@ -1,0 +1,17 @@
+{
+  "account": "123456789012",
+  "region": "ap-northeast-1",
+  "profile": "personal",
+  "context": "TOKYO_CONTEXT",
+  "cluster": "TOKYO_EKS_NAME",
+  "image": "123456789012.dkr.ecr.ap-northeast-1.amazonaws.com/sales:TESTED_TAG",
+  "dbHost": "DATABASE_ENDPOINT.ap-northeast-1.rds.amazonaws.com",
+  "caFile": ".local/aws-sales/global-bundle.pem",
+  "url": "https://sales-tokyo.example.com/",
+  "stateFile": ".local/auth/aws-sales-tokyo.json",
+  "certificateArn": "arn:aws:acm:ap-northeast-1:123456789012:certificate/REPLACE",
+  "operatorCidr": "192.0.2.1/32",
+  "userPoolArn": "arn:aws:cognito-idp:ap-northeast-1:123456789012:userpool/REPLACE",
+  "userPoolClientId": "REPLACE",
+  "userPoolDomain": "REPLACE"
+}

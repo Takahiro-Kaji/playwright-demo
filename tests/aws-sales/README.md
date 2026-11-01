@@ -1,0 +1,126 @@
+# AWS業務7ケース
+
+TypeScript版の販売管理デモを、実行ごとの専用namespace・MySQL DB・DBユーザーで試験する。通常IFは学習用HTTPサービス。Cognitoローカルユーザーの手動Chrome認証と保存済みstorageStateはPR #10の方針を使う。Java版とローカルSQLite版の実行入口は別。
+
+**実AWSでは未検証。** コードのローカル検証とAWS受入を区別する。`aws-sales:list` はAWSに接続しない。`prepare`、`check`、`auth`、`run`、`recover`、`cleanup` は設定済み実環境へ操作するコマンドなので、AWS構築後の承認された検証で使う。
+
+## ファイルと実行経路
+
+- `environment.ts`：外部設定・ローカルjournal・排他、AWS identity/EKS kubeconfig照合、所有ラベルとUID。
+- `resources.ts`：今回だけのbridge、DB Secret、アプリ、上流、Service、CronJob、Cognito Ingress。
+- `lifecycle.ts`：専用DBとユーザー作成・権限、SQLスキーマ初期化、F1投入、DNS/ALB/Ingress/Pod/DB照合、カタログ実応答、Jobと復元。
+- `mysql-tunnel.ts`：試験用bridge Podからprivate RDSへ接続し、ローカルのmysql2でCAとRDS名のTLS検証。トランザクションとロック中は同じ接続を保持する。
+- `harness.ts`：保存認証を新contextで検証 → 対象確認 → ロック → 初期化 → 本体 → context回収 → 個別復元 → 共通復元 → 結果保存。After失敗は実行をブロック。
+- `business.spec.ts` → `scenarios.ts`：実処理へ接続した7ケース。
+- `run.ts`：Playwright終了を待って成功・失敗の双方で今回環境を回収。
+- `cleanup.ts`：今回所有のJob・Pod・Ingress・ALB/TG不在確認、DBユーザー・DB、namespace回収。PR #8の通常namespace用削除処理の前に実行する。
+
+## 外部設定と権限
+
+Node 26、npm、Google Chrome、kubectl、AWS CLIとAWS Load Balancer Controllerが必要。DB所有ATTRIBUTEを使うためMySQL 8.0.21以降を必要とし、今回の実SQL検証は8.4で行う（[MySQL CREATE USER仕様](https://dev.mysql.com/doc/refman/8.0/en/create-user.html)）。試験イメージは現在の `aws/sales/Dockerfile` からビルドし、対象リージョンのECRへ用意する。CAバンドル・設定・journal・認証状態はすべて `.local/` 内に保存しGitへ追加しない。
+
+`config.example.json` を `.local/aws-sales/tokyo-config.json` にコピーして実値へ置き換える。例の値はダミーであり、そのまま使用しない。大阪はregion、context、cluster、ECR、証明書、Cognito、URL、stateFileを大阪用に変え、別journalを使う。共有RDS endpointは同じでも、毎回乱数のDB名・ユーザーになる。**東京で準備→認証→試験→回収してから大阪へ進む。** 同じjournalを複製して並行実行しない。
+
+`url` は専用Ingressへ向ける検証ホスト。Cognito clientのcallbackに `https://HOST/oauth2/idpresponse` が必要。今回の専用ALBへDNSを向け、同じホストを通常Ingressへ向けたままにしない。suiteはDNS、Ingress、ALB listener/ruleの認証・転送先、Pod IP/UID、Service Endpoint、Pod DB設定・Secret・DB所有マーカーを照合し、不一致なら更新処理を始めない。ALBの古いtargetがdraining中でも開始せず、healthyな今回Podだけになってから再確認する。
+
+必要な権限：
+
+- AWS：STS identity、EKS DescribeCluster、ELBv2のDescribeLoadBalancers/Listeners/Rules/TargetHealth/Tags/TargetGroups。コントローラーの作成・削除権限は既存の構築設定。
+- Kubernetes：namespace作成、今回namespace内のPod・Deployment・ReplicaSet・Service/Endpoints・Secret・ConfigMap・CronJob・Job・Ingressの取得/作成/変更/削除、exec、rollout確認。最終回収の所有確認では全namespaced resourceのlistが必要。権限不足は回収未確認として停止する。
+- DB管理用ユーザー：TLS必須。専用DB作成/削除、ユーザー作成/削除、権限付与、`mysql.user` の所有ATTRIBUTE確認、スキーマ作成。RDSの許可された管理ユーザーを使用する。
+
+管理認証は `AWS_SALES_ADMIN_USER` と `AWS_SALES_ADMIN_PASSWORD` を安全な環境変数として渡す。平文のパスワードをコマンド・履歴へ書かない。管理認証はPodへ渡さず、ローカルmysql2のみに使う。専用アプリユーザーには今回DBの業務5表にだけDMLと所有表のSELECTを与え、他DBや所有表の変更権限を与えない。
+
+bridgeは既存EKSのノード上で動き、新しいbastionや有料接続サービスは追加しない。Podから共有RDSへ既存のVPC経路・SG・DNSが必要。Ingressは**実行ごとに別のALBを作る**ため、その稼働時間・LCU等の費用が増える。既存EKS/RDS/NAT等の費用も続くので、1実行ずつ短時間で回収する。料金の保証や2,000円以内の保証はしない。今回のコード実装自体はAWS構築の指示ではない。
+
+## AWS構築後の実行順序
+
+1. PR #10のCognito local設定、callback、検証ユーザー、ACM、ECR、両EKSとController、共有RDS経路を準備する。通常環境の共有データは変更しない。
+2. 対象リージョンの設定ファイルとCA、管理用環境変数を用意する。
+3. 専用環境を作成する（同じjournalを再利用してprepareしない）。
+
+```sh
+npm run aws-sales:manage -- prepare .local/aws-sales/tokyo-run.json .local/aws-sales/tokyo-config.json
+npm run aws-sales:manage -- describe .local/aws-sales/tokyo-run.json
+```
+
+`prepare` は所有情報を先にjournalへ書き、専用namespace・bridge → 専用DB/所有マーカー/ユーザー/権限 → アプリ/上流/Jobひな型/Ingress → F1同期・全件照合まで行う。途中失敗時もjournalを保持する。
+
+4. describeの専用ALB DNSへ検証ホストを登録する。ALBがhealthyになったら、対象整合性を確認して手動認証する。
+
+```sh
+npm run aws-sales:manage -- check .local/aws-sales/tokyo-run.json
+npm run aws-sales:manage -- auth .local/aws-sales/tokyo-run.json
+```
+
+`auth` はjournalのURLとstateFileを既存 `setupAuth()` に渡す。手動ログイン後、新contextとChrome再起動後の再利用を確認する。suiteでも各ケースの新contextに状態を読ませ、URLと `#refresh` を確認する。未設定・失効・別URLは失敗し、成功やskipへ置き換えない。UIはSSO入口だけを使い、port-forwardを実SSO試験として扱わない。
+
+5. 一括または個別実行する。`run` は終了後に専用環境を回収するので、管理認証の環境変数を保持しておく。
+
+```sh
+npm run aws-sales:list
+npm run aws-sales:run -- .local/aws-sales/tokyo-run.json
+# 個別実行：上記の代わりに使用
+npm run aws-sales:run -- .local/aws-sales/tokyo-run.json --grep UI-01
+```
+
+再試験のため環境を残す場合の低水準入口は以下。AfterでF1と通常IFへ復元しJobは停止するが、namespace・Ingress・ALBは残るため必ず後のcleanupを行う。
+
+```sh
+export AWS_SALES_JOURNAL=.local/aws-sales/tokyo-run.json
+npm run aws-sales:test
+npm run aws-sales:test -- --grep BATCH-02
+npm run aws-sales:manage -- cleanup .local/aws-sales/tokyo-run.json
+```
+
+6. DNSを専用ALBから解除し、stateFileを使用後に削除する。大阪は別設定・journal・認証状態で同順序を行う。全検証後、PR #8のinventory/destroy/verifyで基盤と残存資源を確認する。今回cleanupは通常namespace・RDSインスタンス・ACM・DNS・Cognito自体を削除しない。
+
+## ケース別の流れ
+
+各ケースは共通Givenで設定・認証・対象・所有確認を済ませ、今回DBの4表を空にする。既存業務データの初期化はしない。共通Afterは全件F1と通常IFを復元して確認する。テストは1 worker・retryなし・最初の失敗で停止。
+
+- **UI-01「UI正常・学習用通常HTTP IFと受注」**：Given `batch()` → `compareMysql(F1)`。When `availability()` → `show()` → `order()`。Then 201・UUID・画面成功・固定単価/数量、在庫4/version2とP002不変を含む4表全件照合。After 共通復元。
+- **UI-02「UIモック503・DB不変」**：Given `catalog(f1,mock)` → `batch()` → 固定F1照合 → `snapshotMysql()` → 元status退避 → `mockStatus(503)` → `catalogMatches(503)`。When 画面接続確認。Then 502・外部エラー・4表不変。After status元値とHTTP確認 → 共通復元。
+- **BATCH-01「バッチ正常・全件照合」**：Given F1の実応答と空DB。When 実 `batch()`。Then Job completeに加えて固定F1の全キー・件数・値・関連・世代・受注0件を比較。After 共通復元。
+- **BATCH-02「バッチモック503・異常終了とDB不変」**：Given F1同期 → 固定照合 → snapshot → モック503実応答。When 実Job failedを要求（timeoutでは代替不可）。Then 4表不変。After status元値/HTTPと共通復元。
+- **CROSS-01「同期中UI・3000件全表示と独立DB観測」**：Given bulk1同期/固定照合 → bulk2実応答。When 実Jobと継続UI・独立SELECTを並行。Then HTTP・全3,000表示・全ボタン・JS/HTTPエラー・最終DBを確認し、既存 `hasObservedOverlap()` で同じ参照内の1→2だけを採用する。試行開始/Job待機12秒、20試行、10,000観測、UI timeout3秒。すべてrunnerの単調時計でSELECTの送受信を囲むため、クラスタ時計への換算は不要。証拠不足はunconfirmedで非ゼロ終了。After 開始済み処理回収、Job停止・観測要約保存・共通復元。アプリへ遅延は入れない。
+- **CROSS-02「古いversionによる受注拒否」**：Given F1同期/表示 → F2へ `catalog()`/`batch()` → 固定F2照合 → snapshot。When 保持した旧画面から1回受注。Then 409/STALE_VERSION・画面再表示要求・4表不変。After 共通復元。
+- **CROSS-03「不整合情報による受注拒否・復元」**：Given F1同期/表示 → 所有確認済みDBのP001在庫行だけDELETE → snapshot。When 受注。Then 409/INCONSISTENT_DATA・画面異常・4表不変。After 固定値で在庫行を復元しF1全件照合 → 共通復元。
+
+固定期待値は操作より前に定義する。snapshotは「Whenで変わらなかったこと」の基準であり、F1/F2の正しさを証明する期待値の代わりにはしない。受注のtimeoutや応答喪失時に再送しない。
+
+## 判定・復旧
+
+`npm run aws-sales:manage -- summary JOURNAL` でも秘密を除いたケース結果を確認できる。`reporter.ts` の `.local/aws-sales-evidence/*.json` は選択範囲、ケース判定、After判定を別々に記録する。7件すべてpassedかつAfter confirmedのときだけ `allSevenPassed=true`。個別実行や未確認は全7件PASSにならない。journalには実行ID、所有UID、状態、ケース結果、数値時系列だけを保持し、生レスポンス・DB全件・Cookieを出さない。journal自身は専用DBパスワード等を含むのでmode600の秘密ファイルとして扱う。
+
+Afterが失敗するとjournalがblockedになり、その後の試験は初期化前に拒否される。元のbusiness verdictとAfter failed、個別エラーコードを保持する。復元処理は失敗した箇所以外も試み、Job停止不明ならDBをresetしない。
+
+```sh
+# 認証失効なら auth をやり直す。対象不一致ならDNS/ALB/設定を直してcheckする。
+# 復元に失敗した実行を調べて基準状態へ戻す
+npm run aws-sales:manage -- recover .local/aws-sales/tokyo-run.json
+# 試験を再開せず、所有確認して回収する場合
+npm run aws-sales:manage -- cleanup .local/aws-sales/tokyo-run.json
+```
+
+強制終了時はjournalを削除せず、起動したローカル試験プロセスが終了したことを確認する。`.lock` が残っていれば `npm run aws-sales:manage -- unlock JOURNAL` を使う。同一ホストで記録PIDが不存在の場合だけ解除し、存命・他ホスト・所有不明では解除しない。その後recoverかcleanupを使う。Ingressが既に回収された実行はrecover後にrestoredとなり、業務再開には使わずcleanupして新しい実行を準備する。既に削除したDB/ユーザーは不在を確認して扱い、別UIDに置き換わったKubernetesオブジェクトは削除しない。
+
+CREATE DATABASE成功直後の応答とjournal書込みを同時に失った場合など、DB所有マーカーを確認できないと自動削除を拒否する。journalの意図記録・MySQL管理ログ等から作成主体を確認し、管理者が所有を確定するまで対象DBを保持する。名前だけで所有を断定したり、共有DBを削除したりしない。Ingress finalizerを強制解除しない。ALB/TG不在を確認できない場合はnamespaceを残し、Controllerと権限を復旧してcleanupを再実行する。
+
+## ローカル検証と追加ケース
+
+```sh
+npm run sales:check
+npm run aws-sales:verify
+npm run sales:test:verification
+npm run sales:test:unit
+npm run test:integration
+```
+
+`aws/tests/local-*` と `tests/aws-sales/local.config.ts` は専用 `kind-sales-pr9-qa`、MySQL 8.4、今回イメージを使う統合検証。AWS APIとCognito/ALB/DNSだけを模擬し、Pod・Job・MySQL・HTTPアプリは実物を使う。この成功を実AWSの成功とは記録しない。実行準備と検証実績は `IMPLEMENTATION-STATUS.md` を参照する。
+
+SQLite版との違いは、非同期の独立MySQL SELECT、RDS行ロックと接続単位のadvisory lock、Kubernetes Job/rollout、実行単位DB/ユーザーの権限、SSO/ALB経路、削除の非同期性。期待値や同期中の成立条件は同じ。JavaのAWS追加は今回対象外。
+
+新しいAWSケースは、固定期待値を先に定義し、scenariosへIDとGiven/When/Thenを追加し、必要な故障注入はAfter actionを変更前に登録する。ケースIDをreporterへ追加し、対象確認を迂回せず、失敗・応答喪失・After失敗のテストを追加する。全件PASSの必要件数と教材も同時に更新する。
+
+AWS構築後に初めて確認する項目は、ECR pull/IAM、RDS実CAとTLS、両リージョンのSG/peering/DNS、ALB/Cognito localユーザー/期限切れ状態、Controllerのtarget反映・削除、AWS API権限、実負荷での同期中成立証拠、最終費用と#8による残存確認。

@@ -31,12 +31,12 @@ export SALES_AUTH_SUCCESS_SELECTOR='#refresh'
 export SALES_AUTH_STATE='.local/auth/aws-sales.json'
 export AWS_SSO_COGNITO_DOMAIN='example.auth.ap-northeast-1.amazoncognito.com'
 npm run sales:auth:setup
-npm run aws-sales:test
+npm run aws-sales:sso
 ```
 
 実際のUI URLとCognitoドメインに差し替え、各リージョンで実行する。認証セットアップは手動ログイン後、別コンテキストとChrome再起動後の再利用を確認する。試験は未認証の画面・受注APIがCognitoへリダイレクトされること、保存状態で販売管理画面を表示し、不正な受注が400で拒否されることを確認する。DBに受注を登録しない。trace・動画・スクリーンショットは無効。状態ファイルは機密情報として扱う。
 
-ローカル版の7ケースは専用SQLite・ローカルプロセスを使うため、このAWS環境を自動的に試験しない。AWS上の業務シナリオとDB照合は別途追加が必要。
+ローカル版の7ケースは専用SQLite・ローカルプロセスを使うため、このAWS環境を自動的に試験しない。AWS向け業務7ケース・専用DB・Job・復元の実行入口は [AWS業務7ケース](../tests/aws-sales/README.md) を参照する。実AWSの実行は未検証。
 
 ## 上流モードと試験データの切替
 
@@ -57,3 +57,7 @@ ConfigMapの反映は即時ではない。全upstream Podの `/catalog` が期�
 ## 利用後の削除
 
 構築前に [削除・途中失敗時の片付け・残存確認](cleanup/CLEANUP.md) を準備する。専用stateとリソース識別子を保持し、IngressとALBを先に片付けてからTerraform stateを削除する。AWSでの片付け手順は未検証。
+
+## 専用環境の業務7ケース
+
+`aws-sales:manage prepare` → DNS確認 → `check` → `auth` → `aws-sales:run` の順で専用環境を使う。通常namespaceの共有DBは初期化しない。設定・権限・個別実行・失敗/強制終了時の復旧は [実行手順](../tests/aws-sales/README.md) を参照。今回専用IngressとALBを回収してから、上記の基盤削除へ進む。

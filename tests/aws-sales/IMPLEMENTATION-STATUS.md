@@ -1,23 +1,22 @@
 # AWS業務試験の実装状況
 
-現時点ではAWS業務7ケースを実行できない。`aws-sales:test` はSSO試験だけを列挙する。固定fixtureとMySQLの全件比較、ロック部品はあるが、専用環境の所有確認、初期化、ケース実行、JobとPodの停止確認、復元、証跡は未接続。
+7ケースは `business.spec.ts` → `scenarios.ts` → `harness.ts` / `lifecycle.ts` へ接続済み。準備、対象・所有確認、専用DB/ユーザー、実Job、モック実応答、全件比較、復元、実行結果、専用環境回収を実装した。実行方法と関数対応は [README](README.md) を参照。
 
-`SALES_RUN_ID` に32文字の小文字16進数を指定すると `aws/render-sales.cjs` は `sales-test-<ID>` namespace と `sales_test_<ID>` DB名を生成する。名前だけでは専用DBの所有・隔離は証明できず、この出力を既存環境へ適用して試験を開始してはならない。SSO Ingressの描画にも同じIDを渡すと同じnamespaceの `sales-app` を指す。ただしDNS・ALB・認証先・DBが同一実行に属する検証は未実装。Jobには180秒の実行期限を付けているが、Job起動やタイムアウト後の所有確認・停止確認は未実装。通常の学習用IFは本番外部サービスではない。
+実AWSは未検証。ローカルkind/MySQLによる検証はCognito/ALB/DNS/AWS identityを模擬するため、その範囲を実AWS受入と読み替えない。SQL専用・TLS・中継テストもそれぞれ独立した検証。
 
-## ローカルMySQLの照合検証
+PR #8は取り込み済みで、今回cleanupは専用namespaceのIngress/ALB/DBを所有確認して回収する。#8の基盤destroy前に実行する。PR #10のCognitoローカルユーザー・手動認証・storageState方針を既存 `setupAuth()` で利用し、同PRのTerraform認証設定とSSO試験をmainから統合する。実行IDと削除管理ラベルを保持する。
 
-`aws/tests/mysql-isolated.test.ts` は**破棄可能なローカルMySQL**のUNIXソケットを明示した場合のみ実行する。rootで接続し `sales_qa_` と乱数から作った専用DBをCREATEし、終了時にDROPする。既存DBやAWSには使用しない。
+ローカル統合検証の再現入口は `bash aws/tests/run-local.sh`。Docker、kind、kubectl、Chromeが必要。新規の専用kindとMySQL 8.4を作り、`local-manage` / 同じ7シナリオ / 実SQL故障注入・権限・Job timeout停止を実行し、成功・失敗時に回収する。既存の同名kindがあれば使用せず停止する。回収失敗時は所有journalを示して環境を保持する。Cognito・ALB・DNS・AWS identityは模擬であり、それ以外は実物。
 
-```sh
-TEST_MYSQL_SOCKET=/tmp/LOCAL_MYSQL_SOCKET node --test aws/tests/mysql-isolated.test.ts
-```
+## 今回の検証結果
 
-この試験はMySQLの同期、照合、在庫欠落・値不正・余剰行の検出、不正入力時のDB不変、在庫復元と受注を検証する。AWSのTLS経路、Kubernetes、SSO、7ケースの実行や復旧を検証したことにはならない。
+- 型検査、diff check、AWS業務7件の一覧確認：成功。
+- 既存単体19件、照合/ロック12件、AWS orchestration局所16件：成功。認証失効、対象不一致、Job失敗/timeout、After失敗/後続停止と誤PASS防止を含む。
+- 専用kind 1.29 + MySQL 8.4.5で同じ業務シナリオ：UI-01/UI-02/BATCH-01/BATCH-02/CROSS-02/CROSS-03が成功。CROSS-01は最終DB・全表示を確認したが重なり証拠不足で未確認。全ケースのAfterはconfirmed。未確認を含む一括実行は終了コード1で正常に終了。
+- 最終版UI-01単独再確認：終了コード0。
+- 実MySQLのSQL故障注入・権限制限・復元と実Job timeout停止：1件成功、終了コード0。
+- 専用DB/ユーザー/namespaceのcleanup：終了コード0。
+- SQLite版回帰：6件成功、同期中1件未確認で終了コード1。前回の終了待ちは再現せず、プロセス終了を確認。
+- AWSリソース操作・実AWS試験：未実施。ALB/Cognito/DNS/実RDS・IAM・両リージョン接続は構築後に確認する。
 
-`aws/tests/mysql-tls.test.ts` は、明示したローカルMySQLソケットとCAファイルを使い、証明書の名前一致・不一致を確認する。サーバー証明書のSANは `mysql-test.local` が必要。実RDSへの到達経路やTLSの実機確認ではない。
-
-## private RDSへの接続部品
-
-`tests/aws-sales/mysql-tunnel.ts` は `kubectl exec -i` で試験用アプリPod内のNodeを起動し、PodからRDSへのTCP通信を中継する。ローカルPCからprivate RDSへ直接接続する必要はなく、追加の有料中継サービスも不要。DB名は実行IDから決め、mysql2はRDSのホスト名でCAと証明書名を検証する。対象PodへexecできるKubernetes RBACとPodからRDSへの経路、CAとDB認証情報が必要。
-
-この部品はまだ業務試験に接続されていない。呼び出し前にアカウント・context・namespace・Pod所有者、PodのDB_HOSTとDB_NAME、Ingress・ALB・DNSを検証する処理も未実装であり、この部品だけで安全な隔離は成立しない。実AWS・実Kubernetesでの動作は未確認。ローカルの `aws/tests/mysql-tunnel.test.ts` は模擬kubectlと実MySQLを使い、SQLとTLS名不一致を確認する。
+同期中UIの成立証拠不足はユーザー合意により許容し、PASSへ置き換えない。
