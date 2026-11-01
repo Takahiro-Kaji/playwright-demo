@@ -528,14 +528,14 @@ export class Environment {
   }
   async catalogMatches(name: string, status = 200) {
     const want = createHash("sha256")
-      .update(JSON.stringify(salesFixture(name)))
+      .update(status === 200 ? JSON.stringify(salesFixture(name)) : "")
       .digest("hex");
     const raw = await this.execUpstream(
       `fetch('http://127.0.0.1:8081/catalog',{signal:AbortSignal.timeout(5000)}).then(async r=>console.log(JSON.stringify({status:r.status,hash:require('node:crypto').createHash('sha256').update(await r.text()).digest('hex')}))).catch(()=>process.exit(1))`,
     );
     const result = JSON.parse(raw);
     check(
-      result.status === status && (status !== 200 || result.hash === want),
+      result.status === status && result.hash === want,
       "UPSTREAM_RESPONSE_MISMATCH",
     );
   }
@@ -563,6 +563,10 @@ export class Environment {
     check(pod.spec.containers[0].command[2] === mode, "UPSTREAM_MODE_MISMATCH");
   }
   async mockStatus(value?: number) {
+    check(
+      value === undefined || value === 200 || value === 503,
+      "MOCK_STATUS_INVALID",
+    );
     const method = value === undefined ? "GET" : "PUT";
     const raw = await this.execUpstream(
       `fetch('http://127.0.0.1:8081/admin/status',{method:'${method}',headers:{authorization:'Bearer '+process.env.MOCK_TOKEN,'content-type':'application/json'},${value === undefined ? "" : `body:JSON.stringify({status:${value}}),`}signal:AbortSignal.timeout(5000)}).then(async r=>{if(!r.ok)process.exit(2);console.log(JSON.stringify(await r.json()))}).catch(()=>process.exit(1))`,

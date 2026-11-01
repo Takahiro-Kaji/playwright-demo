@@ -28,6 +28,7 @@ export type Harness = {
   codes: string[];
   afterActions: Array<() => Promise<void>>;
   observations?: unknown;
+  differences?: Record<string, number>;
 };
 export async function business(h: Harness, fn: () => Promise<void>) {
   try {
@@ -182,6 +183,7 @@ export const test = base.extend<{ h: Harness }>({
                   after: errors.length ? "failed" : "confirmed",
                   codes: h?.codes || ["SETUP_FAILED"],
                   observations: h?.observations,
+                  differences: h?.differences,
                 };
                 if (errors.length)
                   result.codes.push(

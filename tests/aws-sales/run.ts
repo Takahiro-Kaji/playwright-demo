@@ -46,22 +46,37 @@ export async function runSuite(file: string, args: string[]) {
   process.on("SIGINT", interrupt);
   process.on("SIGTERM", interrupt);
   let code = 1;
+  let primary: unknown;
   try {
     code = await new Promise<number>((ok, no) => {
       child.on("error", () => no(Error("TEST_PROCESS_START_FAILED")));
       child.on("close", (c) => ok(c ?? 1));
     });
+  } catch (error) {
+    primary = error;
+    throw error;
   } finally {
+    const record = loadJournal(file);
+    record.execution = {
+      exitCode: code,
+      cleanup: "pending",
+      codes: primary ? errorCodes(primary) : [],
+    };
+    saveJournal(file, record);
     process.off("SIGINT", interrupt);
     process.off("SIGTERM", interrupt);
     const unlock = exclusive(file);
     try {
       const latest = loadJournal(file);
       await cleanup(new Environment(file, latest));
+      latest.execution!.cleanup = "confirmed";
+      saveJournal(file, latest);
     } catch (e) {
       const latest = loadJournal(file);
       latest.blocked = true;
       latest.lastErrors = errorCodes(e);
+      latest.execution!.cleanup = "failed";
+      latest.execution!.codes.push(...errorCodes(e));
       saveJournal(file, latest);
       throw Error("FINAL_CLEANUP_FAILED");
     } finally {

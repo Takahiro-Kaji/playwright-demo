@@ -58,12 +58,15 @@ export async function manage(
         runId: j.runId,
         phase: j.phase,
         blocked: j.blocked,
-        results: j.results.map(({ id, verdict, after, codes }) => ({
-          id,
-          verdict,
-          after,
-          codes,
-        })),
+        results: j.results.map(
+          ({ id, verdict, after, codes, differences }) => ({
+            id,
+            verdict,
+            after,
+            codes,
+            differences,
+          }),
+        ),
       }),
     );
     return;

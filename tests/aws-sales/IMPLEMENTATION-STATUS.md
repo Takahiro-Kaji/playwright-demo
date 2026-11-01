@@ -15,8 +15,9 @@ PR #8は取り込み済みで、今回cleanupは専用namespaceのIngress/ALB/DB
 - 専用kind 1.29 + MySQL 8.4.5で同じ業務シナリオ：UI-01/UI-02/BATCH-01/BATCH-02/CROSS-02/CROSS-03が成功。CROSS-01は最終DB・全表示を確認したが重なり証拠不足で未確認。全ケースのAfterはconfirmed。未確認を含む一括実行は終了コード1で正常に終了。
 - 最終版UI-01単独再確認：終了コード0。
 - 実MySQLのSQL故障注入・権限制限・復元と実Job timeout停止：1件成功、終了コード0。
-- 専用DB/ユーザー/namespaceのcleanup：終了コード0。
+- 専用DB/ユーザー/namespaceのcleanup：終了コード0。blocked状態から実recover→cleanupも終了コード0。作成したローカルkind/MySQLコンテナは回収済み。
 - SQLite版回帰：6件成功、同期中1件未確認で終了コード1。前回の終了待ちは再現せず、プロセス終了を確認。
+- main統合後のPR #10局所7件、#8削除基盤13件：成功。
 - AWSリソース操作・実AWS試験：未実施。ALB/Cognito/DNS/実RDS・IAM・両リージョン接続は構築後に確認する。
 
 同期中UIの成立証拠不足はユーザー合意により許容し、PASSへ置き換えない。

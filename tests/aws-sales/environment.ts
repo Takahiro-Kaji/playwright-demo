@@ -51,6 +51,11 @@ export type Journal = {
   blocked: boolean;
   phase: string;
   lastErrors?: string[];
+  execution?: {
+    exitCode: number;
+    cleanup: "pending" | "confirmed" | "failed";
+    codes: string[];
+  };
   results: CaseResult[];
 };
 export type CaseResult = {
@@ -59,6 +64,7 @@ export type CaseResult = {
   after: "confirmed" | "failed";
   codes: string[];
   observations?: unknown;
+  differences?: Record<string, number>;
 };
 export function requireThat(value: unknown, code: string): asserts value {
   if (!value) throw Error(code);

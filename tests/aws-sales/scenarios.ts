@@ -22,11 +22,23 @@ const equal = (a: unknown, b: unknown, code: string) =>
 async function batch(h: Harness) {
   check((await h.env.batch()) === "complete", "BATCH_NOT_COMPLETE");
 }
+async function compare(
+  h: Harness,
+  expected: Parameters<typeof compareMysql>[1],
+  code: string,
+) {
+  const differences = await compareMysql(h.db, expected);
+  if (differences.length) {
+    h.differences = {};
+    for (const difference of differences) {
+      const kind = difference.split(":").slice(0, 2).join(":");
+      h.differences[kind] = (h.differences[kind] || 0) + 1;
+    }
+  }
+  check(differences.length === 0, code);
+}
 async function verify(h: Harness, name: string) {
-  check(
-    (await compareMysql(h.db, expectedFixture(name))).length === 0,
-    "FIXED_DB_MISMATCH",
-  );
+  await compare(h, expectedFixture(name), "FIXED_DB_MISMATCH");
 }
 async function show(h: Harness) {
   const wait = h.page.waitForResponse(
@@ -145,7 +157,7 @@ register("UI-01 UI正常・学習用通常HTTP IFと受注", async (h: Harness) 
         },
       ],
     };
-    check((await compareMysql(h.db, want)).length === 0, "ORDER_DB_MISMATCH");
+    await compare(h, want, "ORDER_DB_MISMATCH");
   });
 });
 
