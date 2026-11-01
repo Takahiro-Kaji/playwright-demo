@@ -72,4 +72,4 @@ npm run real-app:test
 
 ### AWS構成について
 
-`old/aws-demo/` は旧デモの保管庫であり、今後のデプロイ・テスト対象には使用しません。現行の販売管理デモ向けAWS構成は [aws/README.md](aws/README.md) に実装中です。AWSへのデプロイと実SSOは未検証です。
+`old/aws-demo/` は旧デモの保管庫であり、今後のデプロイ・テスト対象には使用しません。現行の販売管理デモ向けAWS構成は [aws/README.md](aws/README.md) を参照してください。AWSへのデプロイと実SSOは未検証です。
