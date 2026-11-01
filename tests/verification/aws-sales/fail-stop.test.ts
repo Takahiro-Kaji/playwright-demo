@@ -11,11 +11,11 @@ import {
 } from "node:fs";
 import { resolve, join } from "node:path";
 import { newJournal } from "../../aws-sales/environment.ts";
-test("After failure preserves business verdict, blocks journal and stops subsequent case", () => {
+test("body deadline and After failure preserve verdicts and stop subsequent cases", () => {
   mkdirSync(".local/aws-sales-qa", { recursive: true });
   const dir = mkdtempSync(resolve(".local/aws-sales-qa/fail-stop-"));
   try {
-    for (const body of ["0", "1"]) {
+    for (const body of ["0", "1", "timeout"]) {
       const state = ".local/auth/aws-fail-stop.json";
       mkdirSync(".local/auth", { recursive: true });
       writeFileSync(state, JSON.stringify({ cookies: [], origins: [] }), {
@@ -68,11 +68,16 @@ test("After failure preserves business verdict, blocks journal and stops subsequ
       a.equal(r.status, 1, r.stdout + r.stderr);
       a.equal(existsSync(marker), false);
       const result = JSON.parse(readFileSync(file, "utf8"));
-      a.equal(result.blocked, true);
+      a.equal(result.blocked, body !== "timeout");
       a.equal(result.results.length, 1);
-      a.equal(result.results[0].verdict, body === "1" ? "failed" : "passed");
-      a.equal(result.results[0].after, "failed");
-      a.ok(result.results[0].codes.includes("INJECTED_RESTORE_FAILURE"));
+      a.equal(result.results[0].verdict, body === "0" ? "passed" : "failed");
+      a.equal(
+        result.results[0].after,
+        body === "timeout" ? "confirmed" : "failed",
+      );
+      if (body === "timeout")
+        a.deepEqual(result.results[0].codes, ["HTTP_RESPONSE_FINISH_TIMEOUT"]);
+      else a.ok(result.results[0].codes.includes("INJECTED_RESTORE_FAILURE"));
       if (body === "1")
         a.ok(result.results[0].codes.includes("INJECTED_BODY_FAILURE"));
     }

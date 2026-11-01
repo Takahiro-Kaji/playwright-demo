@@ -1,4 +1,6 @@
 // Verification only: real production fixture + local fake DB/cluster and a routed Chrome page.
+import { readResponseJson } from "../../aws-sales/response-body.ts";
+import type { Response } from "@playwright/test";
 import { uiTest as production, business } from "../../aws-sales/harness.ts";
 import { Environment } from "../../aws-sales/lifecycle.ts";
 import { loadJournal } from "../../aws-sales/environment.ts";
@@ -28,6 +30,7 @@ Environment.prototype.dbOwner = async () => {};
 Environment.prototype.catalog = async () => {};
 Environment.prototype.reset = async () => {};
 Environment.prototype.restore = async () => {
+  if (process.env.INJECT_BODY === "timeout") return;
   throw Error("INJECTED_RESTORE_FAILURE");
 };
 const test = production.extend({
@@ -57,6 +60,11 @@ const test = production.extend({
 test("UI-01 injected body and After", async ({ uiHarness: h }) =>
   business(h, async () => {
     if (process.env.INJECT_BODY === "1") throw Error("INJECTED_BODY_FAILURE");
+    if (process.env.INJECT_BODY === "timeout")
+      await readResponseJson(
+        { finished: () => new Promise(() => {}) } as Response,
+        30,
+      );
   }));
 test("UI-02 must not execute after restoration failure", async () => {
   writeFileSync(process.env.STOP_MARKER!, "unexpected");

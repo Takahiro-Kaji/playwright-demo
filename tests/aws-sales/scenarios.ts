@@ -1,3 +1,4 @@
+import { readResponseJson } from "./response-body.ts";
 import { requireExpectedBatchError } from "./batch-result.ts";
 import { test } from "@playwright/test";
 import { Unconfirmed, type Harness, type BaseHarness } from "./harness.ts";
@@ -46,12 +47,15 @@ async function verify(h: BaseHarness, name: string) {
 }
 async function show(h: Harness) {
   const wait = h.page.waitForResponse(
-    (r) => new URL(r.url()).pathname === "/api/products",
+    (r) =>
+      r.url() === new URL("/api/products", h.page.url()).href &&
+      r.request().method() === "GET" &&
+      r.frame() === h.page.mainFrame(),
     { timeout: 10000 },
   );
   const [r] = await Promise.all([wait, h.page.locator("#refresh").click()]);
   check(r.status() === 200, "PRODUCT_HTTP_FAILED");
-  const body = await r.json();
+  const body = await readResponseJson(r);
   await until(
     async () =>
       (await h.page.locator("#products > div").count()) ===
@@ -64,7 +68,10 @@ async function show(h: Harness) {
 }
 async function order(h: Harness, status: number, body: unknown, text: string) {
   const wait = h.page.waitForResponse(
-    (r) => new URL(r.url()).pathname === "/api/orders",
+    (r) =>
+      r.url() === new URL("/api/orders", h.page.url()).href &&
+      r.request().method() === "POST" &&
+      r.frame() === h.page.mainFrame(),
     { timeout: 10000 },
   );
   const [r] = await Promise.all([
@@ -72,7 +79,7 @@ async function order(h: Harness, status: number, body: unknown, text: string) {
     h.page.locator('[data-product-code="P001"]').click({ timeout: 5000 }),
   ]);
   check(r.status() === status, "ORDER_HTTP_MISMATCH");
-  const result = await r.json();
+  const result = await readResponseJson(r);
   if (body) equal(result, body, "ORDER_BODY_MISMATCH");
   await until(
     async () => (await h.page.locator("#result").textContent()) === text,
@@ -84,7 +91,10 @@ async function order(h: Harness, status: number, body: unknown, text: string) {
 }
 async function availability(h: Harness, status: number, text: string) {
   const waiting = h.page.waitForResponse(
-    (r) => new URL(r.url()).pathname === "/api/availability",
+    (r) =>
+      r.url() === new URL("/api/availability", h.page.url()).href &&
+      r.request().method() === "GET" &&
+      r.frame() === h.page.mainFrame(),
     { timeout: 10000 },
   );
   const [r] = await Promise.all([
@@ -93,7 +103,7 @@ async function availability(h: Harness, status: number, text: string) {
   ]);
   check(r.status() === status, "AVAILABILITY_HTTP_MISMATCH");
   equal(
-    await r.json(),
+    await readResponseJson(r),
     status === 200 ? { available: true } : { error: "UPSTREAM_UNAVAILABLE" },
     "AVAILABILITY_BODY_MISMATCH",
   );
@@ -312,11 +322,21 @@ register("CROSS-01 同期中UI・3000件全表示と独立DB観測", async (h: H
   h.page.on("pageerror", () => pageErrors.push(1));
   h.page.on("response", (r) => {
     if (r.status() >= 500) failedHttp.push(r.status());
-    if (current && new URL(r.url()).pathname === "/api/products")
+    if (
+      current &&
+      r.url() === new URL("/api/products", h.page.url()).href &&
+      r.request().method() === "GET" &&
+      r.frame() === h.page.mainFrame()
+    )
       current.response = performance.now();
   });
   h.page.on("request", (r) => {
-    if (current && new URL(r.url()).pathname === "/api/products")
+    if (
+      current &&
+      r.url() === new URL("/api/products", h.page.url()).href &&
+      r.method() === "GET" &&
+      r.frame() === h.page.mainFrame()
+    )
       current.start = performance.now();
   });
   try {
@@ -376,7 +396,10 @@ register("CROSS-01 同期中UI・3000件全表示と独立DB観測", async (h: H
         };
         attempts.push(current);
         const pending = h.page.waitForResponse(
-          (r) => new URL(r.url()).pathname === "/api/products",
+          (r) =>
+            r.url() === new URL("/api/products", h.page.url()).href &&
+            r.request().method() === "GET" &&
+            r.frame() === h.page.mainFrame(),
           { timeout: 3000 },
         );
         const [response] = await Promise.all([
@@ -384,7 +407,7 @@ register("CROSS-01 同期中UI・3000件全表示と独立DB観測", async (h: H
           h.page.locator("#refresh").click({ timeout: 3000 }),
         ]);
         current.status = response.status();
-        const body = await response.json();
+        const body = await readResponseJson(response, 3000);
         const view = expectations.find(
           (v) => JSON.stringify(v.rows) === JSON.stringify(body.products),
         );
