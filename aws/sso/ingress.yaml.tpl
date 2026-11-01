@@ -1,7 +1,7 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: demo-app-sso
+  name: sales-sso
   namespace: integration-demo
   annotations:
     alb.ingress.kubernetes.io/scheme: internet-facing
@@ -23,5 +23,5 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: demo-app
+                name: sales-app
                 port: { number: 8080 }

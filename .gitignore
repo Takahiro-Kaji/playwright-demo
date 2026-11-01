@@ -17,7 +17,7 @@ mock-curl.conf
 
 /java/target/
 
-# Terraform state contains Cognito client secrets.
+# AWS state may contain secrets
 .terraform/
 *.tfstate
 *.tfstate.*
