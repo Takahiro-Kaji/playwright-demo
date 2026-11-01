@@ -14,3 +14,5 @@ test-results/
 .deploy-*.env
 *.token
 mock-curl.conf
+
+/java/target/
