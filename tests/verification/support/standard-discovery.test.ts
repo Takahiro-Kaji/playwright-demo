@@ -2,14 +2,14 @@ import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { spawnSync } from "node:child_process";
 
-test("default Playwright discovery lists only the seven sales scenarios", () => {
+test("default Playwright discovery lists seven sales scenarios with three UI error variants", () => {
   const result = spawnSync(
     process.execPath,
     ["node_modules/@playwright/test/cli.js", "test", "--list"],
     { encoding: "utf8", timeout: 30000 },
   );
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.match(result.stdout, /Total: 7 tests in 3 files/);
+  assert.match(result.stdout, /Total: 9 tests in 3 files/);
   assert.doesNotMatch(
     result.stdout,
     /old\/aws-demo|create-item\.integration\.spec/,

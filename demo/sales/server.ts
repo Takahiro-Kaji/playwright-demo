@@ -1,7 +1,7 @@
 /** 学習用外部IF・モック・販売アプリのHTTP入口。fixture、URL制限、各サーバーの順に読む。 */
 import http from "node:http";
 import { readFile } from "node:fs/promises";
-import { openDb, order } from "./db.ts";
+import { validateScope, openDb, order, validOrderInput } from "./db.ts";
 import type { DatabaseSync } from "node:sqlite";
 
 export const fixture = {
@@ -85,7 +85,7 @@ export function upstreamServer(token: string, mock = false) {
           const v = await body(req);
           if (
             Object.keys(v).join() !== "status" ||
-            ![200, 503].includes(v.status)
+            ![200, 500, 502, 503].includes(v.status)
           )
             throw Error();
           status = v.status;
@@ -101,13 +101,23 @@ export function upstreamServer(token: string, mock = false) {
 export const page = `<!doctype html><html lang="ja"><meta charset="utf-8"><title>販売管理</title><h1>販売管理</h1><button id="availability">外部接続確認</button><p id="availability-result" role="status"></p><button id="refresh">商品表示</button><div id="products"></div><p id="result" role="status"></p><script src="/app.js"></script></html>`;
 // Consume availability's body too: with Chrome/ALB an unread fetch body can leave
 // request completion (and Playwright's Response body access) pending. See #12.
-export const script = `const result=document.querySelector('#result'); document.querySelector('#availability').onclick=async()=>{const r=await fetch('/api/availability');const data=await r.json();document.querySelector('#availability-result').textContent=r.ok&&data.available===true?'接続可能':'外部システムエラー'};document.querySelector('#refresh').onclick=async()=>{const r=await fetch('/api/products');const data=await r.json();const root=document.querySelector('#products');root.replaceChildren();if(!r.ok){result.textContent='商品情報に不整合があります';return}for(const p of data.products){const box=document.createElement('div');box.textContent=p.name+' '+p.price+'円 在庫'+p.quantity;const button=document.createElement('button');button.textContent='受注';button.dataset.productCode=p.productCode;button.onclick=async()=>{const response=await fetch('/api/orders',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({productCode:p.productCode,quantity:1,version:p.version})});const value=await response.json();result.textContent=response.ok?'受注しました':({INCONSISTENT_DATA:'商品情報に不整合があります',STALE_VERSION:'情報が更新されました。再表示してください',ORDER_UNAVAILABLE:'受注できません'}[value.error]||'受注できません')};box.append(button);root.append(box)}};`;
+export const script = `const result=document.querySelector('#result'); document.querySelector('#availability').onclick=async()=>{const r=await fetch('/api/availability');const data=await r.json();document.querySelector('#availability-result').textContent=r.ok&&data.available===true?'接続可能':'外部システムエラー'};document.querySelector('#refresh').onclick=async()=>{const r=await fetch('/api/products');const data=await r.json();const root=document.querySelector('#products');root.replaceChildren();if(!r.ok){result.textContent='商品情報に不整合があります';return}for(const p of data.products){const box=document.createElement('div');box.textContent=p.name+' '+p.price+'円 在庫'+p.quantity;const button=document.createElement('button');button.textContent='受注';button.dataset.productCode=p.productCode;button.onclick=async()=>{const response=await fetch('/api/orders',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({productCode:p.productCode,quantity:1,version:p.version})});const value=await response.json();result.textContent=response.ok?'受注しました':({INCONSISTENT_DATA:'商品情報に不整合があります',STALE_VERSION:'情報が更新されました。再表示してください',ORDER_UNAVAILABLE:'受注できません',UPSTREAM_UNAVAILABLE:'外部システムエラー'}[value.error]||'受注できません')};box.append(button);root.append(box)}};`;
 /**
  * dbとupstreamを使う販売アプリのサーバーを返す。ローカル外URLは例外。
  * リクエストの予期しない処理失敗はHTTP 500にする。
  */
-export function appServer(db: DatabaseSync, upstream: string) {
+export function appServer(db: DatabaseSync, upstream: string, scope = "") {
+  validateScope(scope);
   const url = localUrl(upstream);
+  // 外部応答を読み終えてからDB処理へ進む。通信中はDBロックを保持しない。
+  async function checkUpstream() {
+    const r = await fetch(new URL("/catalog", url), {
+      signal: AbortSignal.timeout(3000),
+      redirect: "error",
+    });
+    await r.arrayBuffer();
+    if (r.status !== 200) throw Error("UPSTREAM_UNAVAILABLE");
+  }
   return http.createServer(async (req, res) => {
     try {
       if (req.method === "GET" && req.url === "/") {
@@ -122,12 +132,7 @@ export function appServer(db: DatabaseSync, upstream: string) {
       }
       if (req.method === "GET" && req.url === "/api/availability") {
         try {
-          const r = await fetch(new URL("/catalog", url), {
-            signal: AbortSignal.timeout(3000),
-            redirect: "error",
-          });
-          if (!r.ok) throw Error();
-          await r.arrayBuffer();
+          await checkUpstream();
           return json(res, 200, { available: true });
         } catch {
           return json(res, 502, { error: "UPSTREAM_UNAVAILABLE" });
@@ -136,9 +141,9 @@ export function appServer(db: DatabaseSync, upstream: string) {
       if (req.method === "GET" && req.url === "/api/products") {
         const rows = db
           .prepare(
-            "SELECT p.product_code AS productCode,p.name,p.price,i.quantity,p.version FROM products p LEFT JOIN inventory i USING(product_code) WHERE p.active=1 ORDER BY p.product_code",
+            "SELECT p.product_code AS productCode,p.name,p.price,i.quantity,p.version FROM products p LEFT JOIN inventory i USING(product_code) WHERE p.active=1 AND p.product_code GLOB ? ORDER BY p.product_code",
           )
-          .all() as any[];
+          .all(scope + "*") as any[];
         if (rows.some((r) => r.quantity === null))
           return json(res, 409, { error: "INCONSISTENT_DATA" });
         return json(res, 200, { products: rows });
@@ -149,6 +154,19 @@ export function appServer(db: DatabaseSync, upstream: string) {
           b = await body(req);
         } catch {
           return json(res, 400, { error: "INVALID_REQUEST" });
+        }
+        if (
+          scope &&
+          typeof b?.productCode === "string" &&
+          !b.productCode.startsWith(scope)
+        )
+          return json(res, 400, { error: "PRODUCT_OUTSIDE_SCOPE" });
+        if (!validOrderInput(b))
+          return json(res, 400, { error: "INVALID_REQUEST" });
+        try {
+          await checkUpstream();
+        } catch {
+          return json(res, 502, { error: "UPSTREAM_UNAVAILABLE" });
         }
         const r = order(db, b);
         return json(res, r.status, r.body);
@@ -166,7 +184,11 @@ if (import.meta.main) {
     throw Error("PORT_REQUIRED");
   const server =
     mode === "app"
-      ? appServer(openDb(process.env.SALES_DB!), process.env.UPSTREAM_URL!)
+      ? appServer(
+          openDb(process.env.SALES_DB!),
+          process.env.UPSTREAM_URL!,
+          process.env.SALES_SCOPE || "",
+        )
       : mode === "upstream"
         ? upstreamServer("", false)
         : mode === "mock"

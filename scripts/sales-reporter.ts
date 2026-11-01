@@ -19,6 +19,7 @@ type CaseResult = {
   afterStatus: string;
   afterDetail: string;
   observationEvidence?: string;
+  executions?: CaseResult[];
 };
 export default class SalesReporter implements Reporter {
   readonly runId = randomUUID();
@@ -33,7 +34,9 @@ export default class SalesReporter implements Reporter {
   }
   /** testとresultから業務判定とAfterを分けて保存する。戻り値なし。通常は例外を送出しない。 */
   onTestEnd(test: TestCase, result: TestResult) {
-    const item = salesCases.find((c) => c.title === test.title);
+    const item = salesCases.find(
+      (c) => c.title === test.title || test.title.startsWith(c.title + " ("),
+    );
     if (!item) return;
     const detail =
       test.annotations.find((a) => a.type === "after")?.description ?? "未確認";
@@ -41,7 +44,7 @@ export default class SalesReporter implements Reporter {
       (a) => a.type === "case-status",
     )?.description;
     const afterStatus =
-      detail === "停止確認・専用DB削除済み"
+      detail === "停止確認・今回のデータのみ削除・既存データ不変"
         ? "confirmed"
         : detail === "要復旧・DB保持" ||
             (prior !== undefined &&
@@ -58,8 +61,9 @@ export default class SalesReporter implements Reporter {
       (result.status === "failed" && afterStatus !== "confirmed"
         ? "unknown"
         : result.status);
-    this.results.set(item.id, {
+    this.results.set(test.title === item.title ? item.id : test.title, {
       ...item,
+      title: test.title,
       selected: true,
       caseStatus,
       afterStatus,
@@ -70,18 +74,53 @@ export default class SalesReporter implements Reporter {
     });
   }
   /** 全ケースを集計し証跡を書く。resultはPlaywright全体結果。必要なら失敗statusを返す。書込み失敗は例外。 */
-  onEnd(result: FullResult) {
+  async onEnd(result: FullResult) {
     if (this.listing) return;
-    const cases = salesCases.map(
-      (c) =>
-        this.results.get(c.id) ?? {
+    const cases = salesCases.map((c): CaseResult => {
+      const titles = [...this.selected].filter(
+        (title) => title === c.title || title.startsWith(c.title + " ("),
+      );
+      const executions = titles.map(
+        (title): CaseResult =>
+          this.results.get(title === c.title ? c.id : title) ?? {
+            ...c,
+            title,
+            selected: true,
+            caseStatus: "not-run",
+            afterStatus: "not-run",
+            afterDetail: "未実施",
+          },
+      );
+      if (executions.length === 1 && titles[0] === c.title)
+        return executions[0];
+      if (!executions.length)
+        return {
           ...c,
-          selected: this.selected.has(c.title),
+          selected: false,
           caseStatus: "not-run",
           afterStatus: "not-run",
           afterDetail: "未実施",
-        },
-    );
+        };
+      // パラメータの一部が失敗・未実施でも、最後の成功で上書きしない。
+      return {
+        ...c,
+        selected: true,
+        caseStatus: executions.some((e) => e.caseStatus === "failed")
+          ? "failed"
+          : executions.every((e) => e.caseStatus === "passed")
+            ? "passed"
+            : "unknown",
+        afterStatus: executions.some((e) => e.afterStatus === "failed")
+          ? "failed"
+          : executions.every((e) => e.afterStatus === "confirmed")
+            ? "confirmed"
+            : "unknown",
+        afterDetail: executions
+          .map((e) => `${e.title}: ${e.afterDetail}`)
+          .join("; "),
+        executions,
+      };
+    });
     const executionScope = {
       selectedIds: cases.filter((c) => c.selected).map((c) => c.id),
       allSevenSelected: cases.every((c) => c.selected),

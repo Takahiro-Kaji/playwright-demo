@@ -1,8 +1,12 @@
 /** 各ケース専用のローカル環境と操作を用意する。harnessの起動、返す操作、cleanupの順に読む。 */
+import { isDeepStrictEqual } from "node:util";
+import { openDb } from "../../../demo/sales/db.ts";
+import type { Catalog } from "../../../demo/sales/db.ts";
 import { test } from "@playwright/test";
 import { snapshotSales } from "./snapshot.ts";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
+import { writeFileSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
@@ -37,36 +41,68 @@ async function wait(url: string, p: ChildProcess) {
   throw Error("PROCESS_START_TIMEOUT");
 }
 /**
- * ケース専用DBとサーバーを起動し操作一式を返す。modeは実HTTP用IFか制御可能モック。
+ * 共通DB上のケース所有データとローカルサーバーの操作一式を返す。modeは実HTTP用IFか制御可能モック。
  * 起動失敗時は回収を試み、失敗を例外で知らせる。
  */
 export async function harness(mode: "upstream" | "mock") {
   const id = randomUUID(),
     dir = resolve(`.local/sales-learning/${id}`);
   await mkdir(dir, { recursive: true });
-  const db = dir + "/sales.sqlite";
+  // DBファイルは全ケース・再実行で共有。空にせず、このケースのキーだけを使う。
+  const db = resolve(".local/sales-learning/shared/sales.sqlite");
+  await mkdir(resolve(".local/sales-learning/shared"), { recursive: true });
+  const lock = resolve(".local/sales-learning/shared/active-test");
+  try {
+    await mkdir(lock);
+  } catch {
+    await rm(dir, { recursive: true, force: true });
+    throw Error(
+      "SHARED_DB_BUSY: active-testを確認。実行中または前回の復旧が未完了です",
+    );
+  }
+  const scope = `test-${id}:`;
+  const code = (value: string) => scope + value;
+  const scopedCatalog = (value: Catalog): Catalog => ({
+    ...value,
+    products: value.products.map((p) => ({
+      ...p,
+      productCode: code(p.productCode),
+    })),
+  });
+  await writeFile(
+    lock + "/owner.json",
+    JSON.stringify({ pid: process.pid, db, dir, scope }),
+  );
+  const initialDb = openDb(db);
+  const baseline = snapshotSales(initialDb);
+  const baselineScopes = initialDb
+    .prepare("SELECT * FROM sales_sync_scopes ORDER BY scope")
+    .all();
+  initialDb.close();
   const catalog = dir + "/catalog.json";
   await writeFile(
     catalog,
-    JSON.stringify({
-      catalogVersion: 1,
-      products: [
-        {
-          productCode: "P001",
-          name: "ペン",
-          price: 120,
-          active: true,
-          quantity: 5,
-        },
-        {
-          productCode: "P002",
-          name: "ノート",
-          price: 300,
-          active: true,
-          quantity: 2,
-        },
-      ],
-    }),
+    JSON.stringify(
+      scopedCatalog({
+        catalogVersion: 1,
+        products: [
+          {
+            productCode: "P001",
+            name: "ペン",
+            price: 120,
+            active: true,
+            quantity: 5,
+          },
+          {
+            productCode: "P002",
+            name: "ノート",
+            price: 300,
+            active: true,
+            quantity: 2,
+          },
+        ],
+      }),
+    ),
   );
   const upPort = await port(),
     appPort = await port();
@@ -89,6 +125,18 @@ export async function harness(mode: "upstream" | "mock") {
         p.once("error", () => resolve());
       }),
     );
+    writeFileSync(
+      lock + "/owner.json",
+      JSON.stringify({
+        pid: process.pid,
+        db,
+        dir,
+        scope,
+        children: processes
+          .map((child) => child.pid)
+          .filter((pid) => pid !== undefined),
+      }),
+    );
     return p;
   }
   try {
@@ -102,6 +150,7 @@ export async function harness(mode: "upstream" | "mock") {
       PORT: String(appPort),
       SALES_DB: db,
       UPSTREAM_URL: upstream,
+      SALES_SCOPE: scope,
     });
     await wait(app + "/", appProc);
   } catch (error) {
@@ -117,13 +166,14 @@ export async function harness(mode: "upstream" | "mock") {
   }
   /** 同期を別プロセスで実行する。引数なし、終了コードを返す。起動エラーならrejectする。 */
   async function batch() {
-    return new Promise<number>((ok, no) => {
+    return new Promise<number>((resolve, reject) => {
       const p = run(["demo/sales/batch.ts"], {
         SALES_DB: db,
         UPSTREAM_URL: upstream,
+        SALES_SCOPE: scope,
       });
-      p.once("error", no);
-      p.once("close", (code) => ok(code ?? -1));
+      p.once("error", reject);
+      p.once("close", (code) => resolve(code ?? -1));
     });
   }
   /** モック管理値を読むか変更する。value省略で取得、指定で設定。現在値を返し管理失敗時は例外。 */
@@ -151,7 +201,7 @@ export async function harness(mode: "upstream" | "mock") {
       d.close();
     }
   }
-  /** 専用DBに準備用SQLを実行する。sqlとargsを受け、戻り値なし。失敗は例外。 */
+  /** 共通DBの所有行に準備用SQLを実行する。sqlとargsを受け、戻り値なし。失敗は例外。 */
   function execute(sql: string, ...args: any[]) {
     const d = new DatabaseSync(db);
     try {
@@ -165,12 +215,12 @@ export async function harness(mode: "upstream" | "mock") {
   function snapshot() {
     const d = new DatabaseSync(db);
     try {
-      return snapshotSales(d);
+      return snapshotSales(d, scope);
     } finally {
       d.close();
     }
   }
-  /** 子プロセスの終了を確認し必要ならDBを削除する。preserveがtrueなら保持。戻り値なし、終了未確認は例外。 */
+  /** 子プロセスの終了を確認し所有行だけを削除する。preserveがtrueなら復旧待ちで停止。戻り値なし、終了未確認は例外。 */
   async function cleanup(preserve = false) {
     const unknown: number[] = [];
     for (const p of processes) {
@@ -190,13 +240,51 @@ export async function harness(mode: "upstream" | "mock") {
       throw Error(
         `PROCESS_STOP_UNCONFIRMED: ${dir}; pids=${unknown.join(",")}`,
       );
-    if (!preserve) await rm(dir, { recursive: true, force: true });
+    if (!preserve) {
+      const d = openDb(db);
+      try {
+        d.exec("BEGIN IMMEDIATE");
+        try {
+          // 子→親の順で、このケースの所有行だけを削除する。
+          for (const table of ["orders", "inventory", "products"])
+            d.prepare(`DELETE FROM ${table} WHERE product_code GLOB ?`).run(
+              scope + "*",
+            );
+          d.prepare("DELETE FROM sales_sync_scopes WHERE scope=?").run(scope);
+          d.exec("COMMIT");
+        } catch (error) {
+          d.exec("ROLLBACK");
+          throw error;
+        }
+        if (
+          !isDeepStrictEqual(snapshotSales(d), baseline) ||
+          !isDeepStrictEqual(
+            d.prepare("SELECT * FROM sales_sync_scopes ORDER BY scope").all(),
+            baselineScopes,
+          )
+        )
+          throw Error(
+            "EXISTING_DATA_CHANGED: shared DBとowner.jsonを確認してください",
+          );
+      } finally {
+        d.close();
+      }
+      await rm(dir, { recursive: true, force: true });
+      await rm(lock, { recursive: true });
+    } else {
+      throw Error(
+        `RECOVERY_REQUIRED: DB・所有データ・ロックを保持: ${lock}/owner.json`,
+      );
+    }
     test.info().annotations.push({
       type: "after",
-      description: preserve ? "要復旧・DB保持" : "停止確認・専用DB削除済み",
+      description: "停止確認・今回のデータのみ削除・既存データ不変",
     });
   }
   return {
+    scope,
+    code,
+    scopedCatalog,
     app,
     upstream,
     db,

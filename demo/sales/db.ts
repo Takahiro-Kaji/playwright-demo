@@ -64,22 +64,32 @@ export function openDb(filename: string): DatabaseSync {
   CREATE TABLE IF NOT EXISTS products(product_code TEXT PRIMARY KEY NOT NULL,name TEXT NOT NULL,price INTEGER NOT NULL CHECK(price BETWEEN 0 AND 2147483647),active INTEGER NOT NULL CHECK(active IN (0,1)),version INTEGER NOT NULL CHECK(version BETWEEN 1 AND 2147483647));
   CREATE TABLE IF NOT EXISTS inventory(product_code TEXT PRIMARY KEY NOT NULL REFERENCES products(product_code),quantity INTEGER NOT NULL CHECK(quantity BETWEEN 0 AND 2147483647));
   CREATE TABLE IF NOT EXISTS orders(order_id TEXT PRIMARY KEY NOT NULL,product_code TEXT NOT NULL REFERENCES products(product_code),quantity INTEGER NOT NULL CHECK(quantity BETWEEN 1 AND 2147483647),unit_price INTEGER NOT NULL CHECK(unit_price BETWEEN 0 AND 2147483647),status TEXT NOT NULL CHECK(status='CREATED'));
+  CREATE TABLE IF NOT EXISTS sales_sync_scopes(scope TEXT PRIMARY KEY NOT NULL,catalog_version INTEGER NOT NULL);
   CREATE TABLE IF NOT EXISTS sync_state(id INTEGER PRIMARY KEY CHECK(id=1),catalog_version INTEGER NOT NULL);`);
   return db;
 }
+/** スコープをSQLの接頭辞として使える形式に制限する。空文字は全体を対象とする。 */
+export function validateScope(scope: string) {
+  if (scope !== "" && !/^test-[a-f0-9-]+:$/.test(scope))
+    throw Error("INVALID_SCOPE");
+}
+
 /**
  * 検証したcをdbに全量反映する。戻り値なし。不整合・桁あふれ・SQL失敗は例外。
  * 商品・在庫・同期世代を一つのトランザクションでCOMMITし、失敗時はROLLBACKする。
  */
-export function sync(db: DatabaseSync, c: Catalog) {
+export function sync(db: DatabaseSync, c: Catalog, scope = "") {
+  validateScope(scope);
   validateCatalog(c);
+  if (scope && c.products.some((p) => !p.productCode.startsWith(scope)))
+    throw Error("CATALOG_OUTSIDE_SCOPE");
   db.exec("BEGIN IMMEDIATE");
   try {
     const existing = db
       .prepare(
-        "SELECT p.*, i.quantity FROM products p LEFT JOIN inventory i USING(product_code)",
+        "SELECT p.*, i.quantity FROM products p LEFT JOIN inventory i USING(product_code) WHERE p.product_code GLOB ?",
       )
-      .all() as any[];
+      .all(scope + "*") as any[];
     const codes = new Set(c.products.map((p) => p.productCode));
     const save = (p: Product, old: any) => {
       if (old && old.quantity == null) throw Error("INCONSISTENT_DATA");
@@ -115,34 +125,49 @@ export function sync(db: DatabaseSync, c: Catalog) {
           },
           p,
         );
-    db.prepare(
-      "INSERT INTO sync_state VALUES(1,?) ON CONFLICT(id) DO UPDATE SET catalog_version=excluded.catalog_version",
-    ).run(c.catalogVersion);
+    if (scope) {
+      db.prepare(
+        "INSERT INTO sales_sync_scopes VALUES(?,?) ON CONFLICT(scope) DO UPDATE SET catalog_version=excluded.catalog_version",
+      ).run(scope, c.catalogVersion);
+    } else {
+      db.prepare(
+        "INSERT INTO sync_state VALUES(1,?) ON CONFLICT(id) DO UPDATE SET catalog_version=excluded.catalog_version",
+      ).run(c.catalogVersion);
+    }
     db.exec("COMMIT");
   } catch (e) {
     db.exec("ROLLBACK");
     throw e;
   }
 }
-/**
- * dbの最新状態でinputを検証し、HTTP用statusとbodyを返す。業務拒否は400/409の結果。
- * SQLなどの予期しない失敗はROLLBACK後に例外。受注・在庫・商品versionは一緒に更新する。
- */
-export function order(db: DatabaseSync, input: unknown) {
+/** HTTP入口とDB処理で共通の受注入力検証。DBは変更しない。 */
+export function validOrderInput(input: unknown): input is {
+  productCode: string;
+  quantity: number;
+  version: number;
+} {
   if (
     !input ||
     typeof input !== "object" ||
     !keys(input, ["productCode", "quantity", "version"])
   )
-    return { status: 400, body: { error: "INVALID_REQUEST" } };
+    return false;
   const { productCode, quantity, version } = input as any;
-  if (
-    typeof productCode !== "string" ||
-    !productCode ||
-    !integer(quantity, 1) ||
-    !integer(version, 1)
-  )
+  return (
+    typeof productCode === "string" &&
+    productCode.length > 0 &&
+    integer(quantity, 1) &&
+    integer(version, 1)
+  );
+}
+/**
+ * dbの最新状態でinputを検証し、HTTP用statusとbodyを返す。業務拒否は400/409の結果。
+ * SQLなどの予期しない失敗はROLLBACK後に例外。受注・在庫・商品versionは一緒に更新する。
+ */
+export function order(db: DatabaseSync, input: unknown) {
+  if (!validOrderInput(input))
     return { status: 400, body: { error: "INVALID_REQUEST" } };
+  const { productCode, quantity, version } = input;
   db.exec("BEGIN IMMEDIATE");
   try {
     const p = db

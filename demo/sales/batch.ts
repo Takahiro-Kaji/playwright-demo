@@ -5,7 +5,7 @@ import { localUrl } from "./server.ts";
  * upstreamから全JSONを取得・検証してdbPathに同期し、結果の概要を返す。
  * 通信・検証・DB更新失敗は例外。取得完了前にDB更新を始めない。
  */
-export async function runBatch(dbPath: string, upstream: string) {
+export async function runBatch(dbPath: string, upstream: string, scope = "") {
   const response = await fetch(new URL("/catalog", localUrl(upstream)), {
     signal: AbortSignal.timeout(5000),
     redirect: "error",
@@ -14,7 +14,7 @@ export async function runBatch(dbPath: string, upstream: string) {
   const catalog = validateCatalog(await response.json());
   const db = openDb(dbPath);
   try {
-    sync(db, catalog);
+    sync(db, catalog, scope);
   } finally {
     db.close();
   }
@@ -26,7 +26,11 @@ export async function runBatch(dbPath: string, upstream: string) {
 }
 if (import.meta.main) {
   try {
-    const r = await runBatch(process.env.SALES_DB!, process.env.UPSTREAM_URL!);
+    const r = await runBatch(
+      process.env.SALES_DB!,
+      process.env.UPSTREAM_URL!,
+      process.env.SALES_SCOPE || "",
+    );
     console.log(JSON.stringify(r));
   } catch {
     console.error("SYNC_FAILED");

@@ -244,7 +244,7 @@ class SalesScenariosTest {
         });
   }
 
-  // ケース2: 上流を503に設定 → 接続確認 → 502表示と4表の不変を確認。After で復元する。
+  // ケース2: 商品表示後に上流を503に設定 → 受注 → 502表示と4表の不変を確認。After で復元する。
   @Test
   @Order(2)
   void uiMock() throws Exception {
@@ -253,21 +253,16 @@ class SalesScenariosTest {
           // Given: 試験専用のプロセスと DB を準備する。
           open(true, true);
           sync();
+          show();
           var before = h.snapshot();
           makeMockUnavailable();
           assertEquals(503, h.get(h.upstream + "/catalog").statusCode());
-          // When: UI の接続確認を押す。
-          page.navigate(h.app);
-          Response r =
-              page.waitForResponse(
-                  x -> x.url().endsWith("/api/availability"),
-                  () ->
-                      page.getByRole(AriaRole.BUTTON, new Page.GetByRoleOptions().setName("外部接続確認"))
-                          .click());
+          // When: 表示済みP001の受注ボタンを押す。
+          Response r = order();
           // Then: 502、エラー表示、事前 snapshot と4表の不変を確認する。
           assertEquals(502, r.status());
-          assertEquals("UPSTREAM_UNAVAILABLE", body("/api/availability").get("error").asText());
-          assertThat(page.locator("#availability-result")).hasText("外部システムエラー");
+          assertEquals("UPSTREAM_UNAVAILABLE", body("/api/orders").get("error").asText());
+          assertThat(page.locator("#result")).hasText("外部システムエラー");
           assertEquals(before, h.snapshot());
           // After: 共通の cleanup で復元・停止を確認する。
         });

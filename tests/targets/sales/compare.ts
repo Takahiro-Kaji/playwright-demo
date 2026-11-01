@@ -31,27 +31,41 @@ export type ExpectedState = {
 export function compareCatalog(
   db: DatabaseSync,
   expected: ExpectedState,
+  scope = "",
 ): string[] {
   const products = db
-    .prepare("SELECT product_code,name,price,active,version FROM products")
-    .all() as any[];
+    .prepare(
+      "SELECT product_code,name,price,active,version FROM products WHERE product_code GLOB ?",
+    )
+    .all(scope + "*") as any[];
   const inventory = db
-    .prepare("SELECT product_code,quantity FROM inventory")
-    .all() as any[];
-  const sync = db
-    .prepare("SELECT id,catalog_version FROM sync_state")
-    .all() as any[];
+    .prepare(
+      "SELECT product_code,quantity FROM inventory WHERE product_code GLOB ?",
+    )
+    .all(scope + "*") as any[];
+  const sync = scope
+    ? db
+        .prepare(
+          "SELECT 1 AS id,catalog_version FROM sales_sync_scopes WHERE scope=?",
+        )
+        .all(scope)
+    : db.prepare("SELECT id,catalog_version FROM sync_state").all();
   const orders = db
     .prepare(
-      "SELECT order_id,product_code,quantity,unit_price,status FROM orders",
+      "SELECT order_id,product_code,quantity,unit_price,status FROM orders WHERE product_code GLOB ?",
     )
-    .all() as any[];
+    .all(scope + "*") as any[];
   return compareSalesRows({ products, inventory, sync, orders }, expected);
 }
 
 /** Compare independently retrieved rows, including every key and every persisted value. */
 export function compareSalesRows(
-  { products, inventory, sync, orders }: { products: any[]; inventory: any[]; sync: any[]; orders: any[] },
+  {
+    products,
+    inventory,
+    sync,
+    orders,
+  }: { products: any[]; inventory: any[]; sync: any[]; orders: any[] },
   expected: ExpectedState,
 ): string[] {
   const differences: string[] = [];
