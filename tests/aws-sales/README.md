@@ -12,7 +12,7 @@ TypeScript版の販売管理デモを、実行ごとの専用namespace・MySQL D
 - `mysql-tunnel.ts`：試験用bridge Podからprivate RDSへ接続し、ローカルのmysql2でCAとRDS名のTLS検証。トランザクションとロック中は同じ接続を保持する。
 - `harness.ts`：準備 → テスト本体 → 後片付けの実行順を定義する。UI専用 `uiSession` / `uiHarness` のみbrowserと保存認証を要求する。
 - `harness-session.ts`：DB/Kubernetes対象確認・ロック・初期化・個別/共通復元・結果保存を担当する。準備途中で失敗した場合も取得済みリソースを回収し、後片付けの失敗時は実行をブロックする。
-- `scenarios/ui/sales.spec.ts`、`scenarios/batch/sales.spec.ts`、`scenarios/cross-feature/sales.spec.ts`：ローカル版と同じ分類の7ケース。各specの `test()` → Given/When/Thenを読む。
+- `scenarios/01-ui/sales.spec.ts`、`scenarios/02-batch/sales.spec.ts`、`scenarios/03-cross-feature/sales.spec.ts`：ローカル版と同じ分類の7ケース。各specの `test()` → Given/When/Thenを読む。
 - `operations.ts`：共通の画面操作・バッチ正常完了確認・DB照合。
 - `fixtures.ts`：各configの実行モードで実AWS用と専用kind検証用のfixtureを切り替える。両環境で同じspecを使う。
 - `run.ts`：Playwright終了を待って成功・失敗の双方で今回環境を回収。
@@ -97,6 +97,8 @@ UIケースは認証とURL/ALBを含む対象確認を行い、バッチケー�
 ## 判定・復旧
 
 `npm run aws-sales:manage -- summary JOURNAL` でも秘密を除いたケース結果を確認できる。`reporter.ts` の `.local/aws-sales-evidence/*.json` は選択範囲、ケース判定、After判定を別々に記録する。7件すべてpassedかつAfter confirmedのときだけ `allSevenPassed=true`。個別実行や未確認は全7件PASSにならない。journalには実行ID、所有UID、状態、ケース結果、数値時系列だけを保持し、生レスポンス・DB全件・Cookieを出さない。journal自身は専用DBパスワード等を含むのでmode600の秘密ファイルとして扱う。
+
+AWS・localとも実行順は UI-01、UI-02、BATCH-01、BATCH-02、CROSS-01、CROSS-02、CROSS-03。CROSS-01が未確認の場合は業務判定をunconfirmedと記録し、Playwright上はskipとしてAfterを実行する。After成功時のみ後続を実行し、未確認を含む選択実行全体はreporterが非ゼロにする。業務失敗やAfter失敗は `maxFailures=1` で後続を停止する。証拠JSONの `execution` はreporterの最終判定前のPlaywright実行状態であり、選択範囲の成否は `selectedPassed` を参照する。
 
 Afterが失敗するとjournalがblockedになり、その後の試験は初期化前に拒否される。元のbusiness verdictとAfter failed、個別エラーコードを保持する。復元処理は失敗した箇所以外も試み、Job停止不明ならDBをresetしない。
 
