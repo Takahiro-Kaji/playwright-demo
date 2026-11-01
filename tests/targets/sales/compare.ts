@@ -1,3 +1,4 @@
+/** DB全行と事前に決めた期待状態を照合する。ExpectedState、SELECT、キーごとの比較の順に読む。 */
 import type { DatabaseSync } from "node:sqlite";
 
 export type ExpectedProduct = {
@@ -23,6 +24,10 @@ export type ExpectedState = {
   orders: ExpectedOrder[];
 };
 
+/**
+ * 独立SELECTした全行を固定期待値と比較する。dbは接続、expectedは操作前に決めた期待状態。
+ * 差分名の配列を返し、一致なら空配列。不正な削除期待やSQLエラーは例外。
+ */
 export function compareCatalog(
   db: DatabaseSync,
   expected: ExpectedState,
@@ -45,6 +50,7 @@ export function compareCatalog(
   const allExpected = [...expected.products, ...expected.deleted];
   if (expected.deleted.some((p) => p.active || p.quantity !== 0))
     throw Error("INVALID_DELETION_EXPECTATION");
+  // キーをMap化する前に重複を記録する。商品と在庫を別々に読むことで孤立行も見落とさない。
   const index = (rows: any[], key: string, label: string) => {
     const map = new Map<string, any>();
     for (const row of rows) {

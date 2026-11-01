@@ -52,4 +52,4 @@ test('P002 is displayed', async ({ page }) => {
 
 ## 後処理と結果の読み方
 
-`cleanup()` は終了確認前にDBを消さない。モック復元など複数の後処理は `settleAfter()` で全て試み、エラーがあれば `AggregateError` 等で失敗として返す。`playwright.sales.config.ts` は1 worker・再試行なし・`maxFailures: 1` なので、After失敗後のケースは実行しない。[停止の故障注入](../../tests/verification/support/fail-stop.test.ts)で業務成功・失敗・未確認とAfter失敗の組合せを確認している。
+`cleanup()` は終了確認前にDBを消さない。モック復元など複数の後処理は `settleAfter()` で全て試み、エラーがあれば `AggregateError` 等で失敗として返す。`sales.config.ts` は1 worker・再試行なし・`maxFailures: 1` なので、After失敗後のケースは実行しない。[停止の故障注入](../../tests/verification/support/fail-stop.test.ts)で業務成功・失敗・未確認とAfter失敗の組合せを確認している。

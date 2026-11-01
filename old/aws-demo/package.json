@@ -1,0 +1,33 @@
+{
+  "name": "playwright-kubectl-mysql-integration-demo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Two-region EKS, shared RDS MySQL, random request routing, curl-controlled status mocks and Chrome integration tests",
+  "scripts": {
+    "test:unit": "node --test tests/*.unit.test.cjs",
+    "test:integration": "playwright test",
+    "test:integration:headed": "playwright test --headed",
+    "test:list": "playwright test --list",
+    "report": "playwright show-report",
+    "test:syntax": "node scripts/check-syntax.cjs",
+    "sales:check": "tsc --noEmit --module esnext --moduleResolution bundler --target es2022 --types node --allowImportingTsExtensions --skipLibCheck demo/sales/*.ts test-support/*.ts test-support/auth/*.ts tests/targets/sales/*.ts tests/scenarios/*/*.ts tests/verification/*/*.ts",
+    "sales:test:unit": "node --test tests/verification/sales-demo/*.test.ts tests/verification/support/*.test.ts tests/verification/auth/*.test.ts",
+    "sales:test:verification": "node --test tests/verification/sales-comparison/*.test.ts",
+    "sales:test:ui": "playwright test -c playwright.sales.config.ts tests/scenarios/ui",
+    "sales:test:batch": "playwright test -c playwright.sales.config.ts tests/scenarios/batch",
+    "sales:test:cross": "playwright test -c playwright.sales.config.ts tests/scenarios/cross-feature",
+    "sales:test": "npm run sales:check && npm run sales:test:unit && npm run sales:test:verification && playwright test -c playwright.sales.config.ts",
+    "sales:auth:setup": "node test-support/auth/setup.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.0",
+    "@types/node": "^26.6.6",
+    "dotenv": "^16.6.1",
+    "prettier": "^3.9.10",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
