@@ -7,7 +7,13 @@ import {
   type AppLogs,
 } from "../environment/state.ts";
 
-/** ReadyでないPodも対象にし、取得失敗で復元処理を妨げない。 */
+/**
+ * ReadyでないPodも対象にし、取得失敗で復元処理を妨げない。
+ * ログ本文は加工せず保存するため、Podが認証情報を出力しないことが前提。
+ * アプリのログを追加・変更する際はAuthorizationヘッダー、Cookie、トークン、
+ * パスワード等を含めないことを確認し、含まれる場合は出力元か保存前に除外する。
+ * mode600やGit除外は本文の秘密値を除去するものではない。
+ */
 export async function collectAppLogs(
   cluster: Cluster,
   caseId: string,

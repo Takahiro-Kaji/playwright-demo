@@ -99,6 +99,8 @@ export class HarnessSession {
       );
     for (const path of this.appLogs?.files || []) {
       try {
+        // 添付した本文はtest-results/やHTMLレポートにもコピーされる。
+        // attach()はマスキングしないため、認証情報の除外は出力元か保存前に行う。
         await info.attach(basename(path), { path, contentType: "text/plain" });
       } catch {
         this.appLogs!.status = "failed";
