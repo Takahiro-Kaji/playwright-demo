@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { readFile } from 'node:fs/promises';
 import { openDb, order } from './db.ts';
 import type { DatabaseSync } from 'node:sqlite';
 
@@ -9,7 +10,7 @@ async function body(req:http.IncomingMessage) { let s=''; for await(const b of r
 export function upstreamServer(token:string, mock=false) {
   if(mock && token.length<32) throw Error('TOKEN_REQUIRED'); let status=200;
   return http.createServer(async(req,res)=>{
-    if(req.url==='/catalog' && req.method==='GET') { if(status!==200){res.writeHead(status);return res.end();} return json(res,200,fixture); }
+    if(req.url==='/catalog' && req.method==='GET') { if(status!==200){res.writeHead(status);return res.end();} const data=process.env.SALES_CATALOG_FILE ? JSON.parse(await readFile(process.env.SALES_CATALOG_FILE,'utf8')) : fixture; return json(res,200,data); }
     if(mock && req.url==='/admin/status') {
       if(req.headers.authorization!==`Bearer ${token}`) return json(res,401,{error:'UNAUTHORIZED'});
       if(req.method==='GET') return json(res,200,{status});
