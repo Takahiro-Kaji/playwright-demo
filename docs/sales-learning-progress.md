@@ -51,3 +51,11 @@
 - **PASS**：正式originと履歴、契約用ブランチとクリーンな開始状態、調査端末でNode 26.4.0／npm 11.17.0／`node:sqlite` の利用可否を確認。
 - **FAIL**：現時点の調査・資料作成で確認した失敗なし。
 - **未確認**：統括レビュー、依存導入、SQLite同時実行・トランザクション・復元、7試験、故障注入、学習用実HTTP、Google Chrome実行、実SSO、AWSおよび実外部サービス。コマンドは計画であり実行実績ではない。
+
+## 2026-11-01 実装途中の記録
+
+- 承認契約 `6467af1`。A〜Fと統合ブランチを作成し、write権限内の `/private/tmp/sales-demo-{a,b,c,d,e,f}` を使用。別Codex CLIを `gpt-6.1-terra` / high で3件起動したが、app-server初期化が `Operation not permitted` で失敗したため同一CLIで順次作業。
+- 統合ブランチ `integration/sales-learning`。ローカル依存を導入し、型検査・局所5件・SQL照合故障注入・既存回帰10件を実行。Chrome試験は6 PASS、同期中UIは観測不成立で未確認。一括は未確認を含むため非ゼロ。
+- ローカルkubectl実行ファイルは存在するが、偽CLIのみで検証し実クラスタは未確認。SSOは認証入口とURL/locator検証を実装、手動ログイン・新context・Chrome再起動後の実認証は未確認。AWS操作は未実施。
+- 証跡 `.local/sales-learning-evidence/summary.json`。`.local/` のGit除外を確認。デモのPASSは本番外部サービスの実績ではない。
+- 残課題：Afterで試験本体と復元が両方失敗した場合に元の例外を確実に保持する処理の検証、プロセス回収失敗・モック復元失敗の故障注入、照合の網羅性と教材の独立レビュー、同期中の重なりの成立。これらが完了するまで受入完了としない。
