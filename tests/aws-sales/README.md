@@ -132,3 +132,9 @@ AWS構築後に初めて確認する項目は、ECR pull/IAM、RDS実CAとTLS、
 削除前に所有Job/Pod/バッチコンテナの終了証拠を取得し、`journal.batches` にoutcome・exitCode・reason・signal・開始/終了確認・固定マーカーの有無・停止結果を残す。正常、期待するアプリ異常、想定外終了、OOM/シグナル、起動不可、期限超過、終了証拠不明を区別する。状態取得やログ確認に失敗してもJob削除とPod不在確認は試みる。ログは最大2KB/8行から既存の `SALES_START_OR_SYNC_FAILED` の有無だけを読み、全文は保存・表示しない。
 
 BATCH-02は `requireExpectedBatchError()` を通過した異常終了と、前後の実モック503・DB不変を確認する。このマーカーはruntimeの共通catchのため、内部通信を厳密に追跡して503だけが原因だったことを証明するものではない。所有・command・実行/終了証拠と事前正常同期を組み合わせた観測範囲で判定し、終了コード違い、OOM、強制終了、起動失敗、証拠不明をPASSにしない。業務アプリに試験専用の識別処理は追加していない。
+
+## SSO未認証受注試験（Issue #11）
+
+prepare → DNS設定 → check後、同じjournalを `AWS_SSO_JOURNAL` に指定して `npm run aws-sales:sso -- --grep '未認証受注'` を実行する。`SALES_AUTH_URL` / `SALES_AUTH_SUCCESS_URL` はjournal.config.url、`SALES_AUTH_STATE` はjournal.config.stateFile、`SALES_AUTH_SUCCESS_SELECTOR` は `#refresh`、`SALES_AUTH_ENABLED=1`、`AWS_SSO_COGNITO_DOMAIN` は `userPoolDomain.auth.region.amazoncognito.com` とする。未認証受注ケース自体は保存Cookieを読み込まずHTTPを送る。全SSOケースには先に同じjournalでauthを行う。DB管理者や旧 `AWS_SSO_DB_*` の設定は不要。SSO試験は環境を自動cleanupしないため、終了後は本資料のcleanupを実行する。接続先照合・TLS中継・復元範囲と中断時の手順は [SSO試験](../../aws/README.md#sso試験) を参照。
+
+回帰検証は `npm run sales:check` と `npm run aws-sales:verify`。破棄可能なローカルMySQLを使う `bash aws/tests/mysql-tls.test.sh` は、専用ユーザー/DB、TLS中継、想定外受注の削除、同期状態の差分検出、権限不足、ホスト名不一致を確認する。AWS/ALB所有照合はローカルSQL試験で模擬しており、実AWSでの302・未登録・専用行削除・前後一致の受入は別途必要。

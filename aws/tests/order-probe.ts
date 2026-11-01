@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import mysql, { type Connection } from 'mysql2/promise';
+import type { Connection } from 'mysql2/promise';
 
 const query = (db: Connection, sql: string) => db.query({ sql, timeout: 10_000 });
 const execute = (db: Connection, sql: string, values: string[]) => db.execute({ sql, timeout: 10_000 }, values);
@@ -18,7 +17,10 @@ async function snapshot(db: Connection) {
   const [orders] = await query(db, 'SELECT order_id,product_code,quantity,unit_price,status FROM orders ORDER BY order_id');
   const [products] = await query(db, 'SELECT product_code,name,price,active,version FROM products ORDER BY product_code');
   const [inventory] = await query(db, 'SELECT product_code,quantity FROM inventory ORDER BY product_code');
-  return JSON.stringify({ orders, products, inventory });
+  const [sync] = await query(db, 'SELECT id,catalog_version FROM sync_state ORDER BY id');
+  const [lock] = await query(db, 'SELECT id FROM sales_lock ORDER BY id');
+  const [owner] = await query(db, 'SELECT id,run_id,owner_token FROM aws_test_owner ORDER BY id');
+  return JSON.stringify({ orders, products, inventory, sync, lock, owner });
 }
 
 /** Dedicated row, with restoration even if a POST succeeds but its response is lost. */
@@ -58,16 +60,4 @@ export async function probeOrder(db: Connection, post: (code: string) => Promise
   if (probeError && cleanupFailure) throw new AggregateError([new Error(probeError), new Error('CLEANUP_FAILED')], 'PROBE_AND_CLEANUP_FAILED');
   if (cleanupFailure) throw Error('CLEANUP_FAILED');
   if (probeError) throw Error(probeError);
-}
-
-export function probeDatabaseConfig(env: NodeJS.ProcessEnv = process.env) {
-  const { AWS_SSO_DB_HOST: host, AWS_SSO_DB_USER: user, AWS_SSO_DB_PASSWORD: password, AWS_SSO_DB_CA_FILE: ca } = env;
-  if (!host || !user || !password || !ca || !/^[a-z0-9.-]+\.rds\.amazonaws\.com$/.test(host)) throw Error('PROBE_DB_CONFIG_REQUIRED');
-  return { host, user, password, database: 'integration_demo', ssl: { ca: readFileSync(ca), rejectUnauthorized: true, verifyIdentity: true }, connectTimeout: 7000 };
-}
-
-export async function openProbeDatabase(env: NodeJS.ProcessEnv = process.env) {
-  const db = await mysql.createConnection(probeDatabaseConfig(env));
-  try { await query(db, 'SET SESSION innodb_lock_wait_timeout = 10'); return db; }
-  catch { await db.end(); throw Error('PROBE_DB_CONFIG_FAILED'); }
 }

@@ -37,3 +37,10 @@ PR #8は取り込み済みで、今回cleanupは専用namespaceのIngress/ALB/DB
 - ローカル統合のAWS identity・Cognito・ALB・DNSは模擬。実Kubernetes/MySQLの確認と実AWSの確認を混同しない。実OOM/強制終了や実クラウドの停止障害は未注入。
 - CROSS-01は今回再実行していない。既存の成立証拠不足時の未確認扱いと判定条件を維持。SQLite/Java業務ロジックの変更なし。SQLite回帰結果は上記の前回記録を参照。
 - AWS操作・実AWS試験は未実施。実ALB/Cognito/DNS/IAM/RDS、東京・大阪での接続確認は構築後の工程。
+
+## Issue #11: SSO未認証受注と専用DBの接続
+
+- `AWS_SSO_JOURNAL` 必須。preparedかつ所有確認済みの実行専用DB・専用ユーザーを使い、既存 `verifyTarget()` と同一試験セッションのDB名/実効ユーザー/所有マーカーを照合する。bridge Podからの非TTY exec中継とCA/ホスト名検証を維持し、通常DB・管理者・直接TCPへのフォールバックは廃止。
+- 専用商品の挿入、未認証HTTPのCognito 302判定、想定外受注も含む削除、全業務表・ロック行・所有マーカーの前後比較を行う。journal排他とDB advisory lockをAfter終了まで保持し、復元やロック解放失敗時はblockedにする。
+- `sales:check` 成功、`aws-sales:verify` 55件成功。ローカルMySQL 9.2.0の破棄可能な専用環境で `mysql-tls.test.sh` も成功。実SQLによるTLS付きexec中継・専用ユーザー/DB・復元・想定外受注・同期差分・権限不足・ホスト名不一致を確認した。ローカル試験のAWS/ALB確認は模擬。
+- 今回の変更について実AWS（private RDS MySQL 8.4 / Cognito）での受入は未実施。上記の成功を実AWSの302・前後DB一致の確認として扱わない。

@@ -30,7 +30,7 @@ fi
 PROBE_TEST_CA="$scratch/ca.pem" PROBE_TEST_PORT="$port" PROBE_TEST_PASSWORD="$probe_password" node --input-type=module <<'JS'
 import dns from 'node:dns';
 import mysql from 'mysql2/promise';
-import { probeDatabaseConfig } from './aws/tests/order-probe.ts';
+import { mysqlTls } from './aws/sales/tls.ts';
 const original = dns.lookup;
 dns.lookup = function(host, options, callback) {
   if (host.endsWith('.example.rds.amazonaws.com')) {
@@ -39,9 +39,8 @@ dns.lookup = function(host, options, callback) {
   }
   return original.apply(this, arguments);
 };
-const env = { AWS_SSO_DB_HOST:'good.example.rds.amazonaws.com', AWS_SSO_DB_USER:'probe', AWS_SSO_DB_PASSWORD:process.env.PROBE_TEST_PASSWORD, AWS_SSO_DB_CA_FILE:process.env.PROBE_TEST_CA };
 try {
-const config = probeDatabaseConfig(env);
+const config = {host:'good.example.rds.amazonaws.com',user:'probe',password:process.env.PROBE_TEST_PASSWORD,database:'integration_demo',ssl:mysqlTls(process.env.PROBE_TEST_CA)};
 const connection = await mysql.createConnection({...config,port:Number(process.env.PROBE_TEST_PORT)});
 const [result] = await connection.query("SHOW STATUS LIKE 'Ssl_cipher'");
 if (!result[0]?.Value) throw Error('TLS_NOT_ACTIVE');
@@ -54,3 +53,4 @@ if (!rejected) throw Error('HOSTNAME_MISMATCH_ACCEPTED');
 console.log('Trusted CA and mismatched hostname: rejected by certificate hostname validation (HANDSHAKE_SSL_ERROR)');
 } catch { console.error('TLS_TEST_FAILED'); process.exitCode = 1; }
 JS
+TEST_MYSQL_SOCKET="$scratch/mysql.sock" TEST_MYSQL_CA="$scratch/ca.pem" node --test aws/tests/mysql-probe.test.ts
