@@ -10,7 +10,7 @@ import type {
 import { mkdirSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { salesCases } from "../test-support/cases.ts";
+import { salesCases, salesCaseTestTitles } from "../test-support/cases.ts";
 type CaseResult = {
   id: string;
   title: string;
@@ -77,15 +77,13 @@ export default class SalesReporter implements Reporter {
   async onEnd(result: FullResult) {
     if (this.listing) return;
     const cases = salesCases.map((c): CaseResult => {
-      const titles = [...this.selected].filter(
-        (title) => title === c.title || title.startsWith(c.title + " ("),
-      );
+      const titles = salesCaseTestTitles(c);
       const executions = titles.map(
         (title): CaseResult =>
           this.results.get(title === c.title ? c.id : title) ?? {
             ...c,
             title,
-            selected: true,
+            selected: this.selected.has(title),
             caseStatus: "not-run",
             afterStatus: "not-run",
             afterDetail: "未実施",
@@ -104,17 +102,22 @@ export default class SalesReporter implements Reporter {
       // パラメータの一部が失敗・未実施でも、最後の成功で上書きしない。
       return {
         ...c,
-        selected: true,
-        caseStatus: executions.some((e) => e.caseStatus === "failed")
-          ? "failed"
-          : executions.every((e) => e.caseStatus === "passed")
-            ? "passed"
-            : "unknown",
-        afterStatus: executions.some((e) => e.afterStatus === "failed")
-          ? "failed"
-          : executions.every((e) => e.afterStatus === "confirmed")
-            ? "confirmed"
-            : "unknown",
+        selected:
+          this.selected.has(c.title) || executions.some((e) => e.selected),
+        caseStatus: executions.every((e) => e.caseStatus === "not-run")
+          ? "not-run"
+          : executions.some((e) => e.caseStatus === "failed")
+            ? "failed"
+            : executions.every((e) => e.caseStatus === "passed")
+              ? "passed"
+              : "unknown",
+        afterStatus: executions.every((e) => e.afterStatus === "not-run")
+          ? "not-run"
+          : executions.some((e) => e.afterStatus === "failed")
+            ? "failed"
+            : executions.every((e) => e.afterStatus === "confirmed")
+              ? "confirmed"
+              : "unknown",
         afterDetail: executions
           .map((e) => `${e.title}: ${e.afterDetail}`)
           .join("; "),
@@ -123,7 +126,9 @@ export default class SalesReporter implements Reporter {
     });
     const executionScope = {
       selectedIds: cases.filter((c) => c.selected).map((c) => c.id),
-      allSevenSelected: cases.every((c) => c.selected),
+      allSevenSelected: cases.every(
+        (c) => c.selected && (c.executions?.every((e) => e.selected) ?? true),
+      ),
     };
     // 7件すべてのPASSとAfter確認が揃う場合だけ全体PASS。未実施・未確認はFAILと区別する。
     const caseStatus = cases.some((c) => c.caseStatus === "failed")
@@ -145,14 +150,16 @@ export default class SalesReporter implements Reporter {
       { flag: "wx" },
     );
     process.stdout.write(`安全な実行要約: ${dir}/summary.json\n`);
-    const selectedIncomplete = cases.some(
-      (c) =>
-        c.selected &&
-        (["skipped", "interrupted", "unknown", "not-run"].includes(
-          c.caseStatus,
-        ) ||
-          c.afterStatus !== "confirmed"),
-    );
+    const selectedIncomplete = cases
+      .flatMap((c) => c.executions ?? [c])
+      .some(
+        (c) =>
+          c.selected &&
+          (["skipped", "interrupted", "unknown", "not-run"].includes(
+            c.caseStatus,
+          ) ||
+            c.afterStatus !== "confirmed"),
+      );
     if (selectedIncomplete || result.status === "failed")
       return { status: "failed" as const };
   }
