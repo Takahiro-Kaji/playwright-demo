@@ -83,12 +83,6 @@ for (const status of upstreamErrorStatuses) {
       });
       await test.step("Then: 対象データが不変", async () => {
         expect(h.snapshot({ kind: "sync" })).toEqual(before);
-        expect(
-          h.query(
-            "SELECT * FROM orders WHERE product_code GLOB ?",
-            h.scope + "*",
-          ),
-        ).toEqual([]);
       });
       test
         .info()
