@@ -1,13 +1,21 @@
 // Verification only: real production fixture + local fake DB/cluster and a routed Chrome page.
 import { readResponseJson } from "../../aws-sales/support/response-body.ts";
 import type { Response } from "@playwright/test";
-import { uiTest as production, business } from "../../aws-sales/support/harness.ts";
+import {
+  uiTest as production,
+  business,
+} from "../../aws-sales/support/harness.ts";
 import { TargetVerifier } from "../../aws-sales/environment/target-verifier.ts";
 import { SalesDatabase } from "../../aws-sales/database/database.ts";
 import { UpstreamCatalog } from "../../aws-sales/upstream/catalog.ts";
 import { Environment } from "../../aws-sales/environment/lifecycle.ts";
+import { Cluster } from "../../aws-sales/environment/cluster.ts";
 import { loadJournal } from "../../aws-sales/environment/state.ts";
 import { writeFileSync } from "node:fs";
+// ログ取得失敗も注入し、実クラスタへ接続せず後処理の継続を確認する。
+Cluster.prototype.verify = async () => {
+  throw Error("INJECTED_LOG_FAILURE");
+};
 TargetVerifier.prototype.verifyUi = async () => {
   if (process.env.TARGET_MARKER)
     writeFileSync(process.env.TARGET_MARKER, "verified");
