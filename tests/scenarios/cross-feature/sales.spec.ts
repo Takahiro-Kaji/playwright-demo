@@ -44,8 +44,10 @@ test('UI during synchronization', async ({ page }, info) => {
   } finally {
     await test.step('After: 同期とプロセスを回収', async () => {
       if(timer) clearInterval(timer);
-      if(running) await running;
-      await h.cleanup();
+      const errors:unknown[]=[];
+      if(running) try { await running; } catch(e) { errors.push(e); }
+      try { await h.cleanup(errors.length > 0); } catch(e) { errors.push(e); }
+      expect.soft(errors.map(String), 'After失敗').toEqual([]);
     });
   }
 });
@@ -68,7 +70,7 @@ test('stale version rejects order', async ({ page }) => {
       expect(h.query('SELECT * FROM orders')).toEqual([]);
       expect(h.query('SELECT p.version,i.quantity FROM products p JOIN inventory i USING(product_code) WHERE product_code=?','P001')).toEqual([{version:2,quantity:3}]);
     });
-  } finally { await test.step('After: プロセス回収', async () => {await h.cleanup();}); }
+  } finally { await test.step('After: プロセス回収', async () => {try { await h.cleanup(); } catch (error) { expect.soft(String(error), 'After失敗').toBe(''); }}); }
 });
 
 test('inconsistent relationship rejects order', async ({ page }) => {
@@ -93,7 +95,7 @@ test('inconsistent relationship rejects order', async ({ page }) => {
       const errors:unknown[]=[];
       if(removed) try {h.execute('INSERT INTO inventory VALUES(?,?)','P001',5);expect(h.query('SELECT quantity FROM inventory WHERE product_code=?','P001')).toEqual([{quantity:5}]);}catch(e){errors.push(e);}
       try {await h.cleanup(errors.length > 0);}catch(e){errors.push(e);}
-      if(errors.length) throw new AggregateError(errors,'AFTER_FAILED');
+      expect.soft(errors.map(String), 'After失敗').toEqual([]);
     });
   }
 });

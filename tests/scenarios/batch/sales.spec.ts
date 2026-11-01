@@ -16,7 +16,7 @@ test('batch real learning HTTP matches all rows', async () => {
       const db=new DatabaseSync(h.db);try {expect(compareCatalog(db,expected)).toEqual([]);}finally{db.close();}
       expect(h.query('SELECT * FROM inventory')).toHaveLength(2);
     });
-  } finally {await test.step('After: プロセス回収', async () => {await h.cleanup();});}
+  } finally {await test.step('After: プロセス回収', async () => {try { await h.cleanup(); } catch (error) { expect.soft(String(error), 'After失敗').toBe(''); }});}
 });
 
 test('batch mock failure leaves all state unchanged', async () => {
@@ -38,7 +38,7 @@ test('batch mock failure leaves all state unchanged', async () => {
       const errors:unknown[]=[];
       if(old!==undefined) try {expect(await h.status(old)).toBe(old);expect((await fetch(h.upstream+'/catalog')).status).toBe(old);}catch(e){errors.push(e);}
       try {await h.cleanup(errors.length > 0);}catch(e){errors.push(e);}
-      if(errors.length) throw new AggregateError(errors,'AFTER_FAILED');
+      expect.soft(errors.map(String), 'After失敗').toEqual([]);
     });
   }
 });

@@ -23,7 +23,9 @@ export async function setupAuth(state:string,target:string, expectedUrl:string, 
     const context=await browser.newContext();const page=await context.newPage();await page.goto(url);
     await terminal.question('ブラウザーで手動ログインし、完了後にEnterを押してください。');
     await verify(page);
-    await context.storageState({path});await chmod(path,0o600);await context.close();
+    const oldMask=process.umask(0o077);
+    try { await context.storageState({path}); await chmod(path,0o600); } finally { process.umask(oldMask); }
+    await context.close();
     const check=await browser.newContext({storageState:path});const p=await check.newPage();await p.goto(url);
     await verify(p);await check.close();await browser.close();
     browser=await chromium.launch({channel:'chrome',headless:true});const restarted=await browser.newContext({storageState:path});const again=await restarted.newPage();await again.goto(url);

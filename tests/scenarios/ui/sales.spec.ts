@@ -20,7 +20,7 @@ test('UI real learning HTTP success', async ({ page }) => {
       expect(h.query('SELECT p.version,i.quantity FROM products p JOIN inventory i USING(product_code) WHERE p.product_code=?','P001')).toEqual([{version:2,quantity:4}]);
     });
   } finally {
-    await test.step('After: プロセス停止と専用DB削除', async () => { await h.cleanup(); });
+    await test.step('After: プロセス停止と専用DB削除', async () => { try { await h.cleanup(); } catch (error) { expect.soft(String(error), 'After失敗').toBe(''); } });
   }
 });
 
@@ -55,7 +55,7 @@ test('UI mock upstream unavailable', async ({ page }) => {
         expect((await fetch(h.upstream+'/catalog')).status).toBe(old);
       } catch (error) { errors.push(error); }
       try { await h.cleanup(errors.length > 0); } catch (error) { errors.push(error); }
-      if (errors.length) throw new AggregateError(errors, 'AFTER_FAILED');
+      expect.soft(errors.map(String), 'After失敗').toEqual([]);
     });
   }
 });
