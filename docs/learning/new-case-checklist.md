@@ -2,12 +2,12 @@
 
 ## 追加前の確認
 
-1. 学習デモか実対象か、接続先・DB・所有範囲を明示する。学習デモは `harness('upstream')` または `harness('mock')` で実行ごとの専用DBを使う。[実装](../../tests/targets/sales/harness.ts)
+1. 学習デモか実対象か、接続先・DB・所有範囲を明示する。学習デモは `harness('upstream')` または `harness('mock')` で共通DB内で実行ごとに一意の接頭辞を持つ商品群を使う。[実装](../../tests/targets/sales/harness.ts)
 2. 操作前にケースID、入力、HTTP・画面・DBの期待値、復元後の状態を決める。F1/F2と同期中専用3,000件は[7ケース](seven-cases.md)を参照。観測値から期待値を作らない。
 3. `test.step` のGiven／When／Then／Afterを読みやすく書く。Afterは `finally` 内で実行し、失敗を握りつぶさない。復元・停止が不明なら環境を保持し後続を止める。
-4. `snapshot()` はproducts・inventory・sync_state・ordersの**全列**を同一読取りトランザクションで取得する。変更がない期待ならWhen直前とThenを比較する。`query(sql, ...args)` は対象行の観測、`execute(sql, ...args)` は許可された専用DBの準備・復元に使う。
+4. `snapshot()` は所有するproducts・inventory・sales_sync_scopes・ordersの**全列**（同期世代はid=1の形式へ変換）を同一読取りトランザクションで取得する。変更がない期待ならWhen直前とThenを比較する。`query(sql, ...args)` は対象行の観測、`execute(sql, ...args)` は許可された所有行の準備・復元に使う。
 5. モックを変更する場合は `status()` で元値を退避し `status(503)` で設定、業務GETでも確認する。`settleAfter()` に復元と `cleanup()` を順に渡し、復元失敗後も停止を試みる。[既存例](../../tests/scenarios/ui/sales.spec.ts)
-6. 全件照合には `compareCatalog(db, expected)` を使い、削除許容キー・version・同期状態・受注まで期待値を明示する。[実装](../../tests/targets/sales/compare.ts)と[故障注入](../../tests/verification/sales-comparison/compare.test.ts)を参照。表示や観測条件の変更時も、欠落・誤値・誤関連・操作不能などを検出できるか検証する。
+6. 全件照合には `compareCatalog(db, expected, h.scope)` を使い、削除許容キー・version・同期状態・受注まで期待値を明示する。[実装](../../tests/targets/sales/compare.ts)と[故障注入](../../tests/verification/sales-comparison/compare.test.ts)を参照。表示や観測条件の変更時も、欠落・誤値・誤関連・操作不能などを検出できるか検証する。
 7. 認証情報・巨大な応答本文を証跡へ出さず、ケースとAfterの判定を分ける。SSO・実クラスタ・AWSはローカルデモのPASSとは別に確認する。
 
 ## 具体例：P002の商品表示を確認する
@@ -52,4 +52,4 @@ test('P002 is displayed', async ({ page }) => {
 
 ## 後処理と結果の読み方
 
-`cleanup()` は終了確認前にDBを消さない。モック復元など複数の後処理は `settleAfter()` で全て試み、エラーがあれば `AggregateError` 等で失敗として返す。`sales.config.ts` は1 worker・再試行なし・`maxFailures: 1` なので、After失敗後のケースは実行しない。[停止の故障注入](../../tests/verification/support/fail-stop.test.ts)で業務成功・失敗・未確認とAfter失敗の組合せを確認している。
+`cleanup()` は終了確認後に所有行だけを削除し、DB自体は保持する。モック復元など複数の後処理は `settleAfter()` で全て試み、エラーがあれば `AggregateError` 等で失敗として返す。`sales.config.ts` は1 worker・再試行なし・`maxFailures: 1` なので、After失敗後のケースは実行しない。[停止の故障注入](../../tests/verification/support/fail-stop.test.ts)で業務成功・失敗・未確認とAfter失敗の組合せを確認している。

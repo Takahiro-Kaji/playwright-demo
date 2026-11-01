@@ -36,8 +36,8 @@ const f2 = {
 // CROSS-01: 旧・新の固定データを先に作り、同期と参照が重なった証拠を探す。
 test("UI during synchronization", async ({ page }, info) => {
   const h = await harness("upstream");
-  const initial = bulkCatalog(1),
-    updated = bulkCatalog(2);
+  const initial = h.scopedCatalog(bulkCatalog(1)),
+    updated = h.scopedCatalog(bulkCatalog(2));
   const expectations = [initial, updated].map((catalog, index) => ({
     rows: catalog.products.map(({ productCode, name, price, quantity }) => ({
       productCode,
@@ -92,7 +92,10 @@ test("UI during synchronization", async ({ page }, info) => {
       const observe = () => {
         if (samples.length >= maxSamples) return;
         const start = performance.now();
-        const row = h.query("SELECT catalog_version FROM sync_state")[0] as {
+        const row = h.query(
+          "SELECT catalog_version FROM sales_sync_scopes WHERE scope=?",
+          h.scope,
+        )[0] as {
           catalog_version: number;
         };
         samples.push({
@@ -195,12 +198,16 @@ test("UI during synchronization", async ({ page }, info) => {
       const db = new DatabaseSync(h.db);
       try {
         expect(
-          compareCatalog(db, {
-            products: updated.products.map((p) => ({ ...p, version: 2 })),
-            deleted: [],
-            catalogVersion: 2,
-            orders: [],
-          }),
+          compareCatalog(
+            db,
+            {
+              products: updated.products.map((p) => ({ ...p, version: 2 })),
+              deleted: [],
+              catalogVersion: 2,
+              orders: [],
+            },
+            h.scope,
+          ),
         ).toEqual([]);
       } finally {
         db.close();
@@ -286,20 +293,24 @@ test("stale version rejects order", async ({ page }) => {
       expect(await h.batch()).toBe(0);
       await page.goto(h.app);
       await page.locator("#refresh").click();
-      await writeFile(h.catalog, JSON.stringify(f2));
+      await writeFile(h.catalog, JSON.stringify(h.scopedCatalog(f2)));
       expect(await h.batch()).toBe(0);
       const db = new DatabaseSync(h.db);
       try {
         expect(
-          compareCatalog(db, {
-            products: f2.products.map((p, i) => ({
-              ...p,
-              version: i === 0 ? 2 : 1,
-            })),
-            deleted: [],
-            catalogVersion: 2,
-            orders: [],
-          }),
+          compareCatalog(
+            db,
+            {
+              products: h.scopedCatalog(f2).products.map((p, i) => ({
+                ...p,
+                version: i === 0 ? 2 : 1,
+              })),
+              deleted: [],
+              catalogVersion: 2,
+              orders: [],
+            },
+            h.scope,
+          ),
         ).toEqual([]);
       } finally {
         db.close();
@@ -312,7 +323,7 @@ test("stale version rejects order", async ({ page }) => {
       const waiting = page.waitForResponse((r) =>
         r.url().endsWith("/api/orders"),
       );
-      await page.locator('[data-product-code="P001"]').click();
+      await page.locator(`[data-product-code="${h.code("P001")}"]`).click();
       response = await waiting;
     });
     await test.step("Then: 409とDB不変を確認", async () => {
@@ -343,7 +354,7 @@ test("stale version rejects order", async ({ page }) => {
   }
 });
 
-// CROSS-03: 専用DBだけで在庫行を欠落させ、拒否・不変・Afterでの復元を確認する。
+// CROSS-03: このケース所有の商品だけで在庫行を欠落させ、拒否・不変・Afterでの復元を確認する。
 test("inconsistent relationship rejects order", async ({ page }) => {
   const h = await harness("upstream");
   let removed = false;
@@ -353,7 +364,7 @@ test("inconsistent relationship rejects order", async ({ page }) => {
       expect(await h.batch()).toBe(0);
       await page.goto(h.app);
       await page.locator("#refresh").click();
-      h.execute("DELETE FROM inventory WHERE product_code=?", "P001");
+      h.execute("DELETE FROM inventory WHERE product_code=?", h.code("P001"));
       removed = true;
       before = h.snapshot();
     });
@@ -362,7 +373,7 @@ test("inconsistent relationship rejects order", async ({ page }) => {
       const waiting = page.waitForResponse((r) =>
         r.url().endsWith("/api/orders"),
       );
-      await page.locator('[data-product-code="P001"]').click();
+      await page.locator(`[data-product-code="${h.code("P001")}"]`).click();
       response = await waiting;
     });
     await test.step("Then: 409とDB不変", async () => {
@@ -387,11 +398,11 @@ test("inconsistent relationship rejects order", async ({ page }) => {
       const errors: unknown[] = [];
       if (removed)
         try {
-          h.execute("INSERT INTO inventory VALUES(?,?)", "P001", 5);
+          h.execute("INSERT INTO inventory VALUES(?,?)", h.code("P001"), 5);
           expect(
             h.query(
               "SELECT quantity FROM inventory WHERE product_code=?",
-              "P001",
+              h.code("P001"),
             ),
           ).toEqual([{ quantity: 5 }]);
         } catch (e) {
