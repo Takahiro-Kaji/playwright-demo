@@ -63,6 +63,10 @@ export type Journal = {
   batches?: import("../old/batch/result.ts").BatchResult[];
   results: CaseResult[];
 };
+export type AppLogs = {
+  status: "saved" | "failed";
+  files: string[];
+};
 export type CaseResult = {
   id: string;
   verdict: "passed" | "failed" | "unconfirmed";
@@ -70,6 +74,7 @@ export type CaseResult = {
   codes: string[];
   observations?: unknown;
   differences?: Record<string, number>;
+  appLogs?: AppLogs;
 };
 export function assertCondition(value: unknown, code: string): asserts value {
   if (!value) throw Error(code);

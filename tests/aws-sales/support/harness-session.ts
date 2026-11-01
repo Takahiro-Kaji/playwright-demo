@@ -8,6 +8,7 @@ import {
   errorCodes,
   type CaseResult,
   type Journal,
+  type AppLogs,
 } from "../environment/state.ts";
 import {
   acquireTestLock,
@@ -15,6 +16,8 @@ import {
   verifyTestLock,
 } from "../database/test-lock.ts";
 import type { BaseHarness } from "./harness.ts";
+import { collectAppLogs } from "./app-logs.ts";
+import { basename } from "node:path";
 
 export type EnvironmentFactory = (
   file: string,
@@ -29,6 +32,8 @@ export class HarnessSession {
   private h?: BaseHarness;
   private env?: Environment;
   private safe = false;
+  private readonly startedAt = new Date().toISOString();
+  private appLogs?: AppLogs;
   private readonly errors: unknown[] = [];
 
   private readonly file: string;
@@ -86,6 +91,19 @@ export class HarnessSession {
   }
 
   async finish(info: TestInfo) {
+    if (this.env)
+      this.appLogs = await collectAppLogs(
+        this.env.cluster,
+        info.title.split(" ")[0],
+        this.startedAt,
+      );
+    for (const path of this.appLogs?.files || []) {
+      try {
+        await info.attach(basename(path), { path, contentType: "text/plain" });
+      } catch {
+        this.appLogs!.status = "failed";
+      }
+    }
     await this.restoreAndRelease();
     if (this.env) this.recordResult(info);
     if (this.errors.length) throw Error("AWS_AFTER_FAILED");
@@ -160,7 +178,10 @@ export class HarnessSession {
       codes: this.h?.codes || ["SETUP_FAILED"],
       observations: this.h?.observations,
       differences: this.h?.differences,
+      appLogs: this.appLogs,
     };
+    if (this.appLogs?.status === "failed")
+      result.codes.push("APP_LOG_COLLECTION_FAILED");
     if (this.errors.length)
       result.codes.push("AFTER_FAILED", ...this.errors.flatMap(errorCodes));
     env.j.results.push(result);
@@ -169,6 +190,7 @@ export class HarnessSession {
       { type: "business", description: result.verdict },
       { type: "after", description: result.after },
       { type: "safe-codes", description: result.codes.join(",") },
+      { type: "app-logs", description: JSON.stringify(this.appLogs) },
     );
   }
 }

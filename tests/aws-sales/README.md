@@ -169,6 +169,12 @@ UIケースは認証とURL/ALBを含む対象確認を行い、バッチケー�
 
 `npm run aws-sales:manage -- summary JOURNAL` でも秘密を除いたケース結果を確認できる。`support/reporter.ts` の `.local/aws-sales-evidence/*.json` は選択範囲、ケース判定、After判定を別々に記録する。7件すべてpassedかつAfter confirmedのときだけ `allSevenPassed=true`。個別実行や未確認は全7件PASSにならない。journalには実行ID、所有UID、状態、ケース結果、数値時系列だけを保持し、生レスポンス・DB全件・Cookieを出さない。journal自身は専用DBパスワード等を含むのでmode600の秘密ファイルとして扱う。
 
+アプリPodのログはAWS・local共通で、各ケースの終了時（成功・失敗・準備失敗を含む）、復元処理の前に取得する。保存先は `.local/aws-sales-evidence/<runId>/app-logs/<ケースID>-<UUID>/<Pod名>.log`。ケース開始以降の標準出力・標準エラーにタイムスタンプを付け、各コンテナの末尾10,000行・最大1MiBに制限する。再起動があれば直前のコンテナのログも `<Pod名>.previous.log` に保存する。Ready状態は要求せず、Deployment→ReplicaSet→Podの所有関係を確認する。削除済みPodや過去すべての再起動ログの回収は保証しない。アプリが出力していないリクエスト情報などは追加しない。
+
+保存先はコンソールとjournalの `results[].appLogs.files` に記録する。保存したログは `testInfo.attach()` でPlaywrightの各ケースの実行結果にも添付する。HTMLレポートで確認する場合は `npm run aws-sales:test -- --reporter=./tests/aws-sales/support/reporter.ts,html` で実行し、`npx playwright show-report` で開く（localの場合は `aws-sales:local`）。既定のカスタムreporterだけではHTMLレポートを生成しない。Playwrightが添付ファイルを `test-results/` にコピーし、HTMLレポートにも収録する。
+
+取得・添付失敗は `appLogs.status=failed` と `APP_LOG_COLLECTION_FAILED` で記録し、復元・後片付けと業務判定は継続する（一部成功時は保存できたパスを残す）。ログ本文はjournalやコンソールには出さない。元のログファイルはmode600、保存ディレクトリはmode700で作成し、Git管理外の `.local/` に保持する。最終cleanupでPod・名前空間を削除した後もログは残る。Playwrightの結果・レポートもGit管理外だが、次回実行で更新され得る。ログにはアプリが出力する機密情報が含まれ得るため、レポートを含め共有前に内容を確認する。
+
 AWS・localとも実行順は UI-01、UI-02、BATCH-01、BATCH-02、CROSS-01、CROSS-02、CROSS-03。CROSS-01が未確認の場合は業務判定をunconfirmedと記録し、Playwright上はskipとしてAfterを実行する。After成功時のみ後続を実行し、未確認を含む選択実行全体はreporterが非ゼロにする。業務失敗やAfter失敗は `maxFailures=1` で後続を停止する。証拠JSONの `execution` はreporterの最終判定前のPlaywright実行状態であり、選択範囲の成否は `selectedPassed` を参照する。
 
 Afterが失敗するとjournalがblockedになり、その後の試験は初期化前に拒否される。元のbusiness verdictとAfter failed、個別エラーコードを保持する。復元処理は失敗した箇所以外も試み、Job停止不明ならDBをresetしない。

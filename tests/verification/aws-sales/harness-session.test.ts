@@ -28,6 +28,9 @@ for (const failure of ["reset", "lost-lock", "restore"]) {
     };
     const session = new HarnessSession(f.file, (file, j) => {
       const env = new Environment(file, j);
+      env.cluster.verify = async () => {
+        throw Error("LOGS_UNAVAILABLE");
+      };
       env.target.verifyBatch = async () => {};
       env.database.pool = async () =>
         ({
@@ -93,6 +96,8 @@ for (const failure of ["reset", "lost-lock", "restore"]) {
         ),
       );
       a.equal(info.annotations[2].type, "safe-codes");
+      a.equal(journal.results[0].appLogs.status, "failed");
+      a.ok(journal.results[0].codes.includes("APP_LOG_COLLECTION_FAILED"));
     } finally {
       f.close();
     }
