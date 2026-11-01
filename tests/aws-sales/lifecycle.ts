@@ -1,3 +1,8 @@
+import {
+  terminationEvidence,
+  classifyBatch,
+  type BatchResult,
+} from "./batch-result.ts";
 import { readFileSync } from "node:fs";
 import type { Pool } from "mysql2/promise";
 import { randomBytes } from "node:crypto";
@@ -245,7 +250,10 @@ export class Environment {
       await this.dbOwner(db);
       await this.reset(db);
       await this.catalogMatches("f1");
-      check((await this.batch()) === "complete", "INITIAL_BATCH_FAILED");
+      check(
+        (await this.batch()).outcome === "complete",
+        "INITIAL_BATCH_FAILED",
+      );
       check(
         (await compareMysql(db, expectedFixture("f1"))).length === 0,
         "INITIAL_DB_MISMATCH",
@@ -480,6 +488,15 @@ export class Environment {
       }
       check(matches, "DNS_ALB_MISMATCH");
     }
+    await this.verifyDatabaseAndBatch();
+  }
+  async verifyBatchTarget() {
+    await this.cluster.identity();
+    await this.cluster.verify("Namespace", this.j.namespace);
+    await this.bridge();
+    await this.verifyDatabaseAndBatch();
+  }
+  async verifyDatabaseAndBatch() {
     const mock = await this.cluster.verify("Secret", "sales-mock");
     check(
       Buffer.from(mock.data.token, "base64").toString() === this.j.mockToken,
@@ -636,7 +653,7 @@ export class Environment {
       "RESOURCE_STOP_UNCONFIRMED",
     );
   }
-  async batch(waitMs = 190000): Promise<"complete" | "failed" | "timeout"> {
+  async batch(waitMs = 190000): Promise<BatchResult> {
     const cron = await this.cluster.verify("CronJob", "sales-batch");
     checkEnv(cron.spec.jobTemplate.spec.template.spec.containers[0], this.j);
     const name = `sales-sync-${randomBytes(10).toString("hex")}`;
@@ -651,8 +668,15 @@ export class Environment {
     };
     object.spec.activeDeadlineSeconds = 180;
     object.spec.backoffLimit = 0;
-    let result: "complete" | "failed" | "timeout" = "timeout",
-      bodyError: unknown;
+    const result: BatchResult = {
+      job: name,
+      outcome: "unconfirmed",
+      codes: [],
+      stop: "pending",
+    };
+    let bodyError: unknown;
+    let terminalJob: any;
+    let waitTimeout = true;
     try {
       await this.cluster.create(this.file, object);
       const end = performance.now() + waitMs;
@@ -664,21 +688,80 @@ export class Environment {
             (x: any) => x.type === "Complete" && x.status === "True",
           )
         ) {
-          result = "complete";
+          terminalJob = job;
+          result.jobReason = "Complete";
+          waitTimeout = false;
           break;
         }
         const failed = conditions.find(
           (x: any) => x.type === "Failed" && x.status === "True",
         );
         if (failed) {
-          result = failed.reason === "DeadlineExceeded" ? "timeout" : "failed";
+          terminalJob = job;
+          result.jobReason =
+            failed.reason === "DeadlineExceeded"
+              ? "DeadlineExceeded"
+              : failed.reason === "BackoffLimitExceeded"
+                ? "BackoffLimitExceeded"
+                : "OtherFailure";
+          waitTimeout = false;
           break;
         }
         await pause(250);
       }
+      if (waitTimeout) result.jobReason = "WaitTimeout";
+      try {
+        const job = terminalJob || (await this.cluster.verify("Job", name));
+        result.uid = job.metadata.uid;
+        const pods = JSON.parse(
+          await this.cluster.k([
+            "get",
+            "pods",
+            "-l",
+            `job-name=${name}`,
+            "-o",
+            "json",
+          ]),
+        ).items;
+        // Ownership and command are validated before requesting the bounded log tail.
+        result.termination = terminationEvidence(this.j, job, pods, false);
+        if (result.termination.exitCode === 1) {
+          const logs = await this.cluster.k([
+            "logs",
+            result.termination.pod,
+            "-c",
+            "batch",
+            "--tail=8",
+            "--limit-bytes=2048",
+          ]);
+          result.termination.failureMarker = logs
+            .split(/\r?\n/)
+            .some((line) => line === "SALES_START_OR_SYNC_FAILED");
+        }
+        result.outcome = classifyBatch(job, result.termination, waitTimeout);
+      } catch {
+        result.outcome =
+          waitTimeout ||
+          terminalJob?.status?.conditions?.some(
+            (c: any) => c.type === "Failed" && c.reason === "DeadlineExceeded",
+          )
+            ? "timeout"
+            : "unconfirmed";
+        result.codes.push("BATCH_EXIT_EVIDENCE_UNCONFIRMED");
+      }
     } catch (e) {
       bodyError = e;
+      result.codes.push("JOB_OPERATION_FAILED");
     }
+    if (result.outcome === "unexpected-failure")
+      result.codes.push("UNEXPECTED_BATCH_TERMINATION");
+    if (result.termination?.reason === "OOMKilled")
+      result.codes.push("BATCH_OOM");
+    if (result.termination?.signal) result.codes.push("BATCH_SIGNAL_EXIT");
+    if (result.termination && !result.termination.started)
+      result.codes.push("BATCH_NOT_EXECUTED");
+    (this.j.batches ??= []).push(result);
+    this.save();
     let afterError: unknown;
     try {
       await this.deleteOwned("Job", name);
@@ -693,11 +776,15 @@ export class Environment {
         ]),
       );
       check(pods.items.length === 0, "JOB_PODS_STOP_UNCONFIRMED");
+      result.stop = "confirmed";
     } catch (e) {
       afterError = e;
+      result.stop = "unconfirmed";
+      result.codes.push("JOB_STOP_UNCONFIRMED");
       this.j.blocked = true;
       this.save();
     }
+    this.save();
     if (bodyError || afterError)
       throw new AggregateError(
         [
@@ -757,7 +844,10 @@ export class Environment {
       }
     if (!errors.length)
       try {
-        check((await this.batch()) === "complete", "RESTORE_BATCH_FAILED");
+        check(
+          (await this.batch()).outcome === "complete",
+          "RESTORE_BATCH_FAILED",
+        );
         check(
           (await compareMysql(pool, expectedFixture("f1"))).length === 0,
           "RESTORE_DB_MISMATCH",

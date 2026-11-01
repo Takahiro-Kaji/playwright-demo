@@ -42,5 +42,6 @@ export function localEnvironment(file: string, j: Journal) {
     if (operation === "describe-target-groups") return { TargetGroups: [] };
     throw Error("LOCAL_AWS_DISABLED");
   };
+  env.verifyTarget = async () => env.verifyBatchTarget();
   return env;
 }

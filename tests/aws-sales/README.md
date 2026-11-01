@@ -10,14 +10,14 @@ TypeScript版の販売管理デモを、実行ごとの専用namespace・MySQL D
 - `resources.ts`：今回だけのbridge、DB Secret、アプリ、上流、Service、CronJob、Cognito Ingress。
 - `lifecycle.ts`：専用DBとユーザー作成・権限、SQLスキーマ初期化、F1投入、DNS/ALB/Ingress/Pod/DB照合、カタログ実応答、Jobと復元。
 - `mysql-tunnel.ts`：試験用bridge Podからprivate RDSへ接続し、ローカルのmysql2でCAとRDS名のTLS検証。トランザクションとロック中は同じ接続を保持する。
-- `harness.ts`：保存認証を新contextで検証 → 対象確認 → ロック → 初期化 → 本体 → context回収 → 個別復元 → 共通復元 → 結果保存。After失敗は実行をブロック。
+- `harness.ts`：共通の `BaseHarness` はDB/Kubernetes対象確認 → ロック → 初期化 → 本体 → 個別/共通復元 → 結果保存を行う。UI専用 `uiSession` / `uiHarness` のみbrowserと保存認証を要求する。After失敗は実行をブロック。
 - `business.spec.ts` → `scenarios.ts`：実処理へ接続した7ケース。
 - `run.ts`：Playwright終了を待って成功・失敗の双方で今回環境を回収。
 - `cleanup.ts`：今回所有のJob・Pod・Ingress・ALB/TG不在確認、DBユーザー・DB、namespace回収。PR #8の通常namespace用削除処理の前に実行する。
 
 ## 外部設定と権限
 
-Node 26、npm、Google Chrome、kubectl、AWS CLIとAWS Load Balancer Controllerが必要。DB所有ATTRIBUTEを使うためMySQL 8.0.21以降を必要とし、今回の実SQL検証は8.4で行う（[MySQL CREATE USER仕様](https://dev.mysql.com/doc/refman/8.0/en/create-user.html)）。試験イメージは現在の `aws/sales/Dockerfile` からビルドし、対象リージョンのECRへ用意する。CAバンドル・設定・journal・認証状態はすべて `.local/` 内に保存しGitへ追加しない。
+Node 26、npm、kubectl、AWS CLIとAWS Load Balancer Controllerが必要。Google Chromeと保存認証が必要なのはUIおよびUIを使う横断ケースだけで、BATCH-01/02には不要。DB所有ATTRIBUTEを使うためMySQL 8.0.21以降を必要とし、今回の実SQL検証は8.4で行う（[MySQL CREATE USER仕様](https://dev.mysql.com/doc/refman/8.0/en/create-user.html)）。試験イメージは現在の `aws/sales/Dockerfile` からビルドし、対象リージョンのECRへ用意する。CAバンドル・設定・journal・認証状態はすべて `.local/` 内に保存しGitへ追加しない。
 
 `config.example.json` を `.local/aws-sales/tokyo-config.json` にコピーして実値へ置き換える。例の値はダミーであり、そのまま使用しない。大阪はregion、context、cluster、ECR、証明書、Cognito、URL、stateFileを大阪用に変え、別journalを使う。共有RDS endpointは同じでも、毎回乱数のDB名・ユーザーになる。**東京で準備→認証→試験→回収してから大阪へ進む。** 同じjournalを複製して並行実行しない。
 
@@ -55,6 +55,8 @@ npm run aws-sales:manage -- auth .local/aws-sales/tokyo-run.json
 
 `auth` はjournalのURLとstateFileを既存 `setupAuth()` に渡す。手動ログイン後、新contextとChrome再起動後の再利用を確認する。suiteでも各ケースの新contextに状態を読ませ、URLと `#refresh` を確認する。未設定・失効・別URLは失敗し、成功やskipへ置き換えない。UIはSSO入口だけを使い、port-forwardを実SSO試験として扱わない。
 
+バッチ単独の場合は手動認証・storageState・DNS/ALB経由の画面確認を待たず、prepare後に `npm run aws-sales:manage -- check-batch JOURNAL` で事前確認し、`npm run aws-sales:run -- JOURNAL --grep BATCH-01` またはBATCH-02を実行できる。共通設定にIngress用情報は残るが、試験ではアカウント・EKS/context・namespace・bridge・Jobひな型・DB Secret/CA・DB所有を `verifyBatchTarget()` で照合し、CognitoやstateFileを読み込まない。
+
 5. 一括または個別実行する。`run` は終了後に専用環境を回収するので、管理認証の環境変数を保持しておく。
 
 ```sh
@@ -77,12 +79,12 @@ npm run aws-sales:manage -- cleanup .local/aws-sales/tokyo-run.json
 
 ## ケース別の流れ
 
-各ケースは共通Givenで設定・認証・対象・所有確認を済ませ、今回DBの4表を空にする。既存業務データの初期化はしない。共通Afterは全件F1と通常IFを復元して確認する。テストは1 worker・retryなし・最初の失敗で停止。
+UIケースは認証とURL/ALBを含む対象確認を行い、バッチケースはブラウザーなしでDB/Kubernetesの対象確認を行う。各ケースは共通Givenで設定・対象・所有確認を済ませ、今回DBの4表を空にする。既存業務データの初期化はしない。共通Afterは全件F1と通常IFを復元して確認する。テストは1 worker・retryなし・最初の失敗で停止。
 
 - **UI-01「UI正常・学習用通常HTTP IFと受注」**：Given `batch()` → `compareMysql(F1)`。When `availability()` → `show()` → `order()`。Then 201・UUID・画面成功・固定単価/数量、在庫4/version2とP002不変を含む4表全件照合。After 共通復元。
 - **UI-02「UIモック503・DB不変」**：Given `catalog(f1,mock)` → `batch()` → 固定F1照合 → `snapshotMysql()` → 元status退避 → `mockStatus(503)` → `catalogMatches(503)`。When 画面接続確認。Then 502・外部エラー・4表不変。After status元値とHTTP確認 → 共通復元。
 - **BATCH-01「バッチ正常・全件照合」**：Given F1の実応答と空DB。When 実 `batch()`。Then Job completeに加えて固定F1の全キー・件数・値・関連・世代・受注0件を比較。After 共通復元。
-- **BATCH-02「バッチモック503・異常終了とDB不変」**：Given F1同期 → 固定照合 → snapshot → モック503実応答。When 実Job failedを要求（timeoutでは代替不可）。Then 4表不変。After status元値/HTTPと共通復元。
+- **BATCH-02「バッチモック503・異常終了とDB不変」**：Given F1同期 → 固定照合 → snapshot → モック503実応答。When 対象Job/Pod/バッチコンテナの所有確認、実行開始/終了、exitCode 1・reason Error・signalなし・既存固定エラーマーカーを確認（単なるFailedやtimeoutでは代替不可）。Job前後にモック503の実応答を確認する。Then 4表不変。After status元値/HTTPと共通復元。
 - **CROSS-01「同期中UI・3000件全表示と独立DB観測」**：Given bulk1同期/固定照合 → bulk2実応答。When 実Jobと継続UI・独立SELECTを並行。Then HTTP・全3,000表示・全ボタン・JS/HTTPエラー・最終DBを確認し、既存 `hasObservedOverlap()` で同じ参照内の1→2だけを採用する。試行開始/Job待機12秒、20試行、10,000観測、UI timeout3秒。すべてrunnerの単調時計でSELECTの送受信を囲むため、クラスタ時計への換算は不要。証拠不足はunconfirmedで非ゼロ終了。After 開始済み処理回収、Job停止・観測要約保存・共通復元。アプリへ遅延は入れない。
 - **CROSS-02「古いversionによる受注拒否」**：Given F1同期/表示 → F2へ `catalog()`/`batch()` → 固定F2照合 → snapshot。When 保持した旧画面から1回受注。Then 409/STALE_VERSION・画面再表示要求・4表不変。After 共通復元。
 - **CROSS-03「不整合情報による受注拒否・復元」**：Given F1同期/表示 → 所有確認済みDBのP001在庫行だけDELETE → snapshot。When 受注。Then 409/INCONSISTENT_DATA・画面異常・4表不変。After 固定値で在庫行を復元しF1全件照合 → 共通復元。
@@ -105,7 +107,7 @@ npm run aws-sales:manage -- cleanup .local/aws-sales/tokyo-run.json
 
 強制終了時はjournalを削除せず、起動したローカル試験プロセスが終了したことを確認する。`.lock` が残っていれば `npm run aws-sales:manage -- unlock JOURNAL` を使う。同一ホストで記録PIDが不存在の場合だけ解除し、存命・他ホスト・所有不明では解除しない。その後recoverかcleanupを使う。Ingressが既に回収された実行はrecover後にrestoredとなり、業務再開には使わずcleanupして新しい実行を準備する。既に削除したDB/ユーザーは不在を確認して扱い、別UIDに置き換わったKubernetesオブジェクトは削除しない。
 
-CREATE DATABASE成功直後の応答とjournal書込みを同時に失った場合など、DB所有マーカーを確認できないと自動削除を拒否する。journalの意図記録・MySQL管理ログ等から作成主体を確認し、管理者が所有を確定するまで対象DBを保持する。名前だけで所有を断定したり、共有DBを削除したりしない。Ingress finalizerを強制解除しない。ALB/TG不在を確認できない場合はnamespaceを残し、Controllerと権限を復旧してcleanupを再実行する。
+CREATE DATABASE成功直後の応答とjournal書込みを同時に失った場合など、DB所有マーカーを確認できないと自動削除を拒否する。journalの意図記録・MySQL管理ログ等から作成主体を確認し、管理者が所有を確定するまで対象DBを保持する。名前だけで所有を断定したり、共有DBを削除したりしない。cleanupはアプリPodの不在とJob停止・CronJob suspendを明示的に確認する。停止操作失敗、Pod不在timeout、Job停止未確認ではDBのreset/restore/DROPへ進まず、`cleanupStops` の理由と既存の失敗をjournalに保持してblocked/recovery-requiredにする。この場合はIngress/bridge/DBも残しており、停止原因を直してcleanupを再実行する。Ingress finalizerを強制解除しない。ALB/TG不在を確認できない場合はnamespaceを残し、Controllerと権限を復旧してcleanupを再実行する。
 
 ## ローカル検証と追加ケース
 
@@ -124,3 +126,9 @@ SQLite版との違いは、非同期の独立MySQL SELECT、RDS行ロックと�
 新しいAWSケースは、固定期待値を先に定義し、scenariosへIDとGiven/When/Thenを追加し、必要な故障注入はAfter actionを変更前に登録する。ケースIDをreporterへ追加し、対象確認を迂回せず、失敗・応答喪失・After失敗のテストを追加する。全件PASSの必要件数と教材も同時に更新する。
 
 AWS構築後に初めて確認する項目は、ECR pull/IAM、RDS実CAとTLS、両リージョンのSG/peering/DNS、ALB/Cognito localユーザー/期限切れ状態、Controllerのtarget反映・削除、AWS API権限、実負荷での同期中成立証拠、最終費用と#8による残存確認。
+
+## Job異常終了の確認範囲
+
+削除前に所有Job/Pod/バッチコンテナの終了証拠を取得し、`journal.batches` にoutcome・exitCode・reason・signal・開始/終了確認・固定マーカーの有無・停止結果を残す。正常、期待するアプリ異常、想定外終了、OOM/シグナル、起動不可、期限超過、終了証拠不明を区別する。状態取得やログ確認に失敗してもJob削除とPod不在確認は試みる。ログは最大2KB/8行から既存の `SALES_START_OR_SYNC_FAILED` の有無だけを読み、全文は保存・表示しない。
+
+BATCH-02は `requireExpectedBatchError()` を通過した異常終了と、前後の実モック503・DB不変を確認する。このマーカーはruntimeの共通catchのため、内部通信を厳密に追跡して503だけが原因だったことを証明するものではない。所有・command・実行/終了証拠と事前正常同期を組み合わせた観測範囲で判定し、終了コード違い、OOM、強制終了、起動失敗、証拠不明をPASSにしない。業務アプリに試験専用の識別処理は追加していない。

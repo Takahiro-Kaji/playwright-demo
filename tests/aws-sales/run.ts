@@ -74,7 +74,9 @@ export async function runSuite(file: string, args: string[]) {
     } catch (e) {
       const latest = loadJournal(file);
       latest.blocked = true;
-      latest.lastErrors = errorCodes(e);
+      latest.lastErrors = [
+        ...new Set([...(latest.lastErrors || []), ...errorCodes(e)]),
+      ];
       latest.execution!.cleanup = "failed";
       latest.execution!.codes.push(...errorCodes(e));
       saveJournal(file, latest);

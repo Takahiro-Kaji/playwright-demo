@@ -1,9 +1,12 @@
 // Verification only: real production fixture + local fake DB/cluster and a routed Chrome page.
-import { test as production, business } from "../../aws-sales/harness.ts";
+import { uiTest as production, business } from "../../aws-sales/harness.ts";
 import { Environment } from "../../aws-sales/lifecycle.ts";
 import { loadJournal } from "../../aws-sales/environment.ts";
 import { writeFileSync } from "node:fs";
-Environment.prototype.verifyTarget = async () => {};
+Environment.prototype.verifyTarget = async () => {
+  if (process.env.TARGET_MARKER)
+    writeFileSync(process.env.TARGET_MARKER, "verified");
+};
 Environment.prototype.pool = async () =>
   ({
     getConnection: async () => ({
@@ -36,7 +39,10 @@ const test = production.extend({
         route.fulfill({
           status: 200,
           contentType: "text/html",
-          body: '<button id="refresh">商品表示</button>',
+          body:
+            process.env.UI_AUTH_MODE === "expired"
+              ? "<div>login</div>"
+              : '<button id="refresh">商品表示</button>',
         }),
       );
       return context;
@@ -48,7 +54,7 @@ const test = production.extend({
     }
   },
 });
-test("UI-01 injected body and After", async ({ h }) =>
+test("UI-01 injected body and After", async ({ uiHarness: h }) =>
   business(h, async () => {
     if (process.env.INJECT_BODY === "1") throw Error("INJECTED_BODY_FAILURE");
   }));

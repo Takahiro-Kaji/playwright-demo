@@ -1,3 +1,4 @@
+import { fixture } from "./fixtures.ts";
 import { test } from "node:test";
 import { strict as a } from "node:assert";
 import { mkdtempSync, writeFileSync, rmSync, readFileSync } from "node:fs";
@@ -13,37 +14,6 @@ import {
 import { manifests } from "../../aws-sales/resources.ts";
 import { Environment, checkEnv, until } from "../../aws-sales/lifecycle.ts";
 import { mkdirSync } from "node:fs";
-function fixture() {
-  mkdirSync(".local/aws-sales-qa", { recursive: true });
-  const dir = mkdtempSync(resolve(".local/aws-sales-qa/run-"));
-  const ca = join(dir, "ca.pem");
-  writeFileSync(ca, "test");
-  const config: Config = {
-    account: "123456789012",
-    region: "ap-northeast-1",
-    profile: "test",
-    context: "test",
-    cluster: "test",
-    image: "123456789012.dkr.ecr.ap-northeast-1.amazonaws.com/test:v1",
-    dbHost: "db.region.rds.amazonaws.com",
-    caFile: ca,
-    url: "https://test.example.com/",
-    stateFile: ".local/auth/test.json",
-    certificateArn: "arn:aws:acm:ap-northeast-1:123456789012:certificate/test",
-    operatorCidr: "192.0.2.1/32",
-    userPoolArn:
-      "arn:aws:cognito-idp:ap-northeast-1:123456789012:userpool/test",
-    userPoolClientId: "abc",
-    userPoolDomain: "test",
-  };
-  const j = newJournal(validateConfig(config));
-  return {
-    dir,
-    j,
-    file: join(dir, "journal.json"),
-    close: () => rmSync(dir, { recursive: true, force: true }),
-  };
-}
 
 test("configuration and journal fail closed on target changes", () => {
   const f = fixture();
@@ -131,52 +101,6 @@ test("resource labels cannot substitute for a different recorded UID", () => {
     f.close();
   }
 });
-for (const expected of ["complete", "failed", "timeout"] as const)
-  test(`Job ${expected} is distinct and stop is confirmed`, async () => {
-    const f = fixture();
-    const env = new Environment(f.file, f.j);
-    const cron = manifests(f.j).cron;
-    let deleted = false;
-    let observedName = "";
-    env.cluster.verify = async (kind, name) => {
-      if (kind === "CronJob") return cron;
-      observedName = name;
-      return {
-        status: {
-          conditions:
-            expected === "timeout"
-              ? []
-              : [
-                  {
-                    type: expected === "complete" ? "Complete" : "Failed",
-                    status: "True",
-                  },
-                ],
-        },
-      };
-    };
-    env.cluster.create = async (_file, object) => {
-      a.equal(object.spec.activeDeadlineSeconds, 180);
-      a.equal(object.spec.backoffLimit, 0);
-      f.j.resources.push({
-        kind: "Job",
-        name: object.metadata.name,
-        uid: "owned",
-      });
-    };
-    env.deleteOwned = async (kind, name) => {
-      a.equal(kind, "Job");
-      a.ok(name.startsWith("sales-sync-"));
-      deleted = true;
-    };
-    env.cluster.k = async () => JSON.stringify({ items: [] });
-    try {
-      a.equal(await env.batch(expected === "timeout" ? 0 : 100), expected);
-      a.ok(deleted);
-    } finally {
-      f.close();
-    }
-  });
 test("Job stop failure blocks subsequent execution and preserves operation failure", async () => {
   const f = fixture();
   const env = new Environment(f.file, f.j);

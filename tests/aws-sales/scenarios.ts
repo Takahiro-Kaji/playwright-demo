@@ -1,11 +1,15 @@
+import { requireExpectedBatchError } from "./batch-result.ts";
 import { test } from "@playwright/test";
-import { Unconfirmed, type Harness } from "./harness.ts";
-export const scenarios: Array<{
-  title: string;
-  run: (h: Harness) => Promise<void>;
-}> = [];
+import { Unconfirmed, type Harness, type BaseHarness } from "./harness.ts";
+export type Scenario =
+  | { kind: "ui"; title: string; run: (h: Harness) => Promise<void> }
+  | { kind: "batch"; title: string; run: (h: BaseHarness) => Promise<void> };
+export const scenarios: Scenario[] = [];
 function register(title: string, run: (h: Harness) => Promise<void>) {
-  scenarios.push({ title, run });
+  scenarios.push({ kind: "ui", title, run });
+}
+function registerBatch(title: string, run: (h: BaseHarness) => Promise<void>) {
+  scenarios.push({ kind: "batch", title, run });
 }
 import { requireThat as check } from "./environment.ts";
 import { expectedFixture, until } from "./lifecycle.ts";
@@ -19,11 +23,11 @@ import {
 import { syncDisplayMatches } from "../targets/sales/sync-display.ts";
 const equal = (a: unknown, b: unknown, code: string) =>
   check(JSON.stringify(a) === JSON.stringify(b), code);
-async function batch(h: Harness) {
-  check((await h.env.batch()) === "complete", "BATCH_NOT_COMPLETE");
+async function batch(h: BaseHarness) {
+  check((await h.env.batch()).outcome === "complete", "BATCH_NOT_COMPLETE");
 }
 async function compare(
-  h: Harness,
+  h: BaseHarness,
   expected: Parameters<typeof compareMysql>[1],
   code: string,
 ) {
@@ -37,7 +41,7 @@ async function compare(
   }
   check(differences.length === 0, code);
 }
-async function verify(h: Harness, name: string) {
+async function verify(h: BaseHarness, name: string) {
   await compare(h, expectedFixture(name), "FIXED_DB_MISMATCH");
 }
 async function show(h: Harness) {
@@ -187,7 +191,7 @@ register("UI-02 UIモック503・DB不変", async (h: Harness) => {
   }
 });
 
-register("BATCH-01 バッチ正常・全件照合", async (h: Harness) => {
+registerBatch("BATCH-01 バッチ正常・全件照合", async (h: BaseHarness) => {
   await test.step("Given: 通常IFのF1実応答と空DB", async () => {
     await h.env.catalogMatches("f1");
     equal(
@@ -202,31 +206,36 @@ register("BATCH-01 バッチ正常・全件照合", async (h: Harness) => {
     verify(h, "f1"));
 });
 
-register("BATCH-02 バッチモック503・異常終了とDB不変", async (h: Harness) => {
-  let before: unknown,
-    old = 200;
-  await test.step("Given: F1同期後にモック503", async () => {
-    await h.env.catalog("f1", "mock");
-    await batch(h);
-    await verify(h, "f1");
-    before = await snapshotMysql(h.db);
-    old = await h.env.mockStatus();
-    h.afterActions.push(() =>
-      test.step("After: モック元値と業務HTTP応答を復元", async () => {
-        await h.env.mockStatus(old);
-        await h.env.catalogMatches("f1", old);
-      }),
-    );
-    await h.env.mockStatus(503);
-    await h.env.catalogMatches("f1", 503);
-  });
-  {
-    await test.step("When: Job失敗を確認（timeoutは失敗結果と別）", async () =>
-      check((await h.env.batch()) === "failed", "EXPECTED_FAILED_JOB"));
-    await test.step("Then: 4表全件不変", async () =>
-      equal(await snapshotMysql(h.db), before, "UNEXPECTED_DB_MUTATION"));
-  }
-});
+registerBatch(
+  "BATCH-02 バッチモック503・異常終了とDB不変",
+  async (h: BaseHarness) => {
+    let before: unknown,
+      old = 200;
+    await test.step("Given: F1同期後にモック503", async () => {
+      await h.env.catalog("f1", "mock");
+      await batch(h);
+      await verify(h, "f1");
+      before = await snapshotMysql(h.db);
+      old = await h.env.mockStatus();
+      h.afterActions.push(() =>
+        test.step("After: モック元値と業務HTTP応答を復元", async () => {
+          await h.env.mockStatus(old);
+          await h.env.catalogMatches("f1", old);
+        }),
+      );
+      await h.env.mockStatus(503);
+      await h.env.catalogMatches("f1", 503);
+    });
+    {
+      await test.step("When: Job失敗を確認（timeoutは失敗結果と別）", async () => {
+        requireExpectedBatchError(await h.env.batch());
+        await h.env.catalogMatches("f1", 503);
+      });
+      await test.step("Then: 4表全件不変", async () =>
+        equal(await snapshotMysql(h.db), before, "UNEXPECTED_DB_MUTATION"));
+    }
+  },
+);
 
 register("CROSS-02 古いversionによる受注拒否", async (h: Harness) => {
   let before: unknown;
@@ -343,9 +352,9 @@ register("CROSS-01 同期中UI・3000件全表示と独立DB観測", async (h: H
       );
       running = (async () => {
         const result = await h.env.batch(12000);
-        if (result === "timeout")
+        if (result.outcome === "timeout")
           throw new Unconfirmed("BATCH_OBSERVATION_DEADLINE");
-        check(result === "complete", "BULK_BATCH_FAILED");
+        check(result.outcome === "complete", "BULK_BATCH_FAILED");
       })().finally(() => {
         done = true;
       });

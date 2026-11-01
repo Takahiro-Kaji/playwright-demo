@@ -1,10 +1,13 @@
 import { acquireTestLock, releaseTestLock } from "./db.ts";
 import type { Pool } from "mysql2/promise";
 import { Environment, until } from "./lifecycle.ts";
-import { requireThat as check } from "./environment.ts";
+import { requireThat as check, errorCodes } from "./environment.ts";
 
 /** Delete only recorded run resources, preserving the namespace if recovery is incomplete. */
-export async function cleanup(env: Environment) {
+export async function cleanup(
+  env: Environment,
+  options: { stopTimeoutMs?: number } = {},
+) {
   const { j, cluster } = env;
   await cluster.identity();
   if (!(await cluster.get("Namespace", j.namespace))) {
@@ -13,59 +16,73 @@ export async function cleanup(env: Environment) {
       "NAMESPACE_MISSING_DB_REQUIRES_RECOVERY",
     );
     j.phase = "cleaned";
+    j.blocked = false;
     env.save();
     return;
   }
   await cluster.verify("Namespace", j.namespace);
   const errors: unknown[] = [];
-  const attempt = async (fn: () => Promise<void>) => {
+  const attempt = async (fn: () => Promise<void>, scope?: string) => {
     try {
       await fn();
     } catch (e) {
-      errors.push(e);
+      errors.push(scope ? new AggregateError([e], scope) : e);
     }
   };
-  // Recover all jobs, including response-loss cases whose UIDs were reconciled.
-  for (const r of j.resources.filter((r) => r.kind === "Job"))
-    await attempt(async () => {
-      await env.deleteOwned("Job", r.name);
-      const pods = JSON.parse(
-        await cluster.k([
-          "get",
-          "pods",
-          "-l",
-          `job-name=${r.name}`,
-          "-o",
-          "json",
-        ]),
-      );
-      check(pods.items.length === 0, "JOB_PODS_STOP_UNCONFIRMED");
-    });
-  // Disable HTTP writers before database restoration. This also makes cleanup
-  // retryable after a previous invocation already scaled the app down.
-  if (await cluster.get("Deployment", "sales-app"))
-    await attempt(async () => {
-      const dep = await cluster.verify("Deployment", "sales-app");
+  // No database mutation is permitted until every known writer is stopped.
+  const stops = {
+    app: "unconfirmed" as "confirmed" | "unconfirmed",
+    jobs: "unconfirmed" as "confirmed" | "unconfirmed",
+    reasons: [] as string[],
+  };
+  j.cleanupStops = stops;
+  j.blocked = true;
+  j.phase = "cleaning";
+  env.save();
+  await attempt(async () => {
+    await env.stopJobs();
+    const jobs = JSON.parse(await cluster.k(["get", "jobs", "-o", "json"]));
+    check(jobs.items.length === 0, "UNRECORDED_OR_RUNNING_JOB");
+    const cron = await cluster.get("CronJob", "sales-batch");
+    if (cron) {
+      cluster.owned(cron, "CronJob", "sales-batch");
+      check(cron.spec.suspend === true, "CRON_WRITER_NOT_SUSPENDED");
+    }
+    stops.jobs = "confirmed";
+  }, "JOB_STOP_UNCONFIRMED");
+  await attempt(async () => {
+    const app = await cluster.get("Deployment", "sales-app");
+    if (app) {
+      const dep = cluster.owned(app, "Deployment", "sales-app");
       dep.spec.replicas = 0;
       delete dep.metadata.managedFields;
       delete dep.status;
       await cluster.k(["replace", "-f", "-"], dep);
-      await until(
-        async () =>
-          JSON.parse(
-            await cluster.k([
-              "get",
-              "pods",
-              "-l",
-              "app=sales-app",
-              "-o",
-              "json",
-            ]),
-          ).items.length === 0,
-        120000,
-        "WRITER_STOP_UNCONFIRMED",
-      );
-    });
+    }
+    // Check Pods even when the Deployment has already disappeared.
+    await until(
+      async () =>
+        JSON.parse(
+          await cluster.k(["get", "pods", "-l", "app=sales-app", "-o", "json"]),
+        ).items.length === 0,
+      options.stopTimeoutMs ?? 120000,
+      "WRITER_STOP_UNCONFIRMED",
+    );
+    stops.app = "confirmed";
+  }, "APP_STOP_UNCONFIRMED");
+  if (stops.app !== "confirmed" || stops.jobs !== "confirmed") {
+    stops.reasons = errors.flatMap(errorCodes);
+    j.blocked = true;
+    j.phase = "recovery-required";
+    j.lastErrors = [
+      ...(j.lastErrors || []),
+      "WRITERS_STOP_UNCONFIRMED",
+      ...stops.reasons,
+    ];
+    env.save();
+    throw new AggregateError(errors, "WRITERS_STOP_UNCONFIRMED");
+  }
+  env.save();
   let db: Pool | undefined;
   if (j.dbOwned && (await cluster.get("Deployment", "sales-upstream")))
     await attempt(async () => {
@@ -232,6 +249,7 @@ export async function cleanup(env: Environment) {
   if (errors.length) {
     j.blocked = true;
     j.phase = "recovery-required";
+    j.lastErrors = [...(j.lastErrors || []), ...errors.flatMap(errorCodes)];
     env.save();
     throw new AggregateError(errors, "CLEANUP_FAILED");
   }

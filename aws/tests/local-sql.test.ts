@@ -10,7 +10,9 @@ import {
   compareMysql,
   snapshotMysql,
 } from "../../tests/aws-sales/db.ts";
-const file = process.env.AWS_SALES_LOCAL_JOURNAL || ".local/aws-sales-qa/local-journal.json";
+const file =
+  process.env.AWS_SALES_LOCAL_JOURNAL ||
+  ".local/aws-sales-qa/local-journal.json";
 test("real SQL faults, restricted privileges, restoration, and actual Job timeout stop", async () => {
   const j = loadJournal(file),
     env = localEnvironment(file, j),
@@ -86,7 +88,7 @@ test("real SQL faults, restricted privileges, restoration, and actual Job timeou
     a.deepEqual(await snapshotMysql(db), before);
     await a.rejects(db.query("SELECT * FROM mysql.user"));
     await a.rejects(db.query("DELETE FROM aws_test_owner"));
-    a.equal(await env.batch(1), "timeout");
+    a.equal((await env.batch(1)).outcome, "timeout");
   } finally {
     try {
       await env.restore(db);

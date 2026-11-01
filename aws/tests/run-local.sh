@@ -52,7 +52,7 @@ docker build -f aws/sales/Dockerfile -t "$image" .
 kind load docker-image --name "$cluster" "$image"
 node aws/tests/local-manage.ts prepare
 set +e
-npm run aws-sales:local
+npm run aws-sales:local -- "$@"
 suite_code=$?
 set -e
 node --test aws/tests/local-sql.test.ts

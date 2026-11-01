@@ -100,6 +100,7 @@ export async function manage(
         "#refresh",
       );
     } else if (action === "check") await env.verifyTarget();
+    else if (action === "check-batch") await env.verifyBatchTarget();
     else if (action === "cleanup") await cleanup(env);
     else if (action === "recover") {
       await env.cluster.identity();
@@ -146,7 +147,7 @@ if (import.meta.main)
       const codes = errorCodes(error);
       try {
         const j = loadJournal(process.argv[3]);
-        j.lastErrors = codes;
+        j.lastErrors = [...new Set([...(j.lastErrors || []), ...codes])];
         saveJournal(process.argv[3], j);
       } catch {}
       console.error("AWS_SALES_OPERATION_FAILED " + codes.join(","));

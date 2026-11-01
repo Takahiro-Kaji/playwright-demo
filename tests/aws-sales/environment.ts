@@ -56,6 +56,12 @@ export type Journal = {
     cleanup: "pending" | "confirmed" | "failed";
     codes: string[];
   };
+  cleanupStops?: {
+    app: "confirmed" | "unconfirmed";
+    jobs: "confirmed" | "unconfirmed";
+    reasons: string[];
+  };
+  batches?: import("./batch-result.ts").BatchResult[];
   results: CaseResult[];
 };
 export type CaseResult = {
