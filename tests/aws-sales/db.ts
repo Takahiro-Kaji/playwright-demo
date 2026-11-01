@@ -9,13 +9,22 @@ export async function acquireTestLock(pool: Pool): Promise<PoolConnection> {
     const [rows] = await connection.query<RowDataPacket[]>("SELECT GET_LOCK('sales-aws-business-tests', 0) AS acquired");
     if (rows[0]?.acquired !== 1) throw Error('AWS_TEST_LOCK_UNAVAILABLE');
     return connection;
-  } catch (error) { connection.release(); throw error; }
+  } catch (error) {
+    // GET_LOCK may have succeeded even when the response was lost. Never reuse it.
+    try { connection.destroy(); } catch { /* preserve the acquisition error */ }
+    throw error;
+  }
 }
 export async function releaseTestLock(connection: PoolConnection) {
   try {
     const [rows] = await connection.query<RowDataPacket[]>("SELECT RELEASE_LOCK('sales-aws-business-tests') AS released");
     if (rows[0]?.released !== 1) throw Error('AWS_TEST_LOCK_LOST');
-  } finally { connection.release(); }
+  } catch (error) {
+    // A lost response does not establish that the server released the lock.
+    try { connection.destroy(); } catch { /* preserve the release error */ }
+    throw error;
+  }
+  connection.release();
 }
 export async function snapshotMysql(pool: Pool) {
   const c = await pool.getConnection();
