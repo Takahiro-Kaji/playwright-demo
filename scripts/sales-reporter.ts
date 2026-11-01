@@ -21,9 +21,11 @@ type CaseResult = {
 };
 export default class SalesReporter implements Reporter {
   readonly runId = randomUUID();
+  private readonly listing = process.argv.includes("--list");
   selected = new Set<string>();
   results = new Map<string, CaseResult>();
   onBegin(_config: FullConfig, suite: Suite) {
+    if (this.listing) return;
     mkdirSync(".local/sales-learning-evidence", { recursive: true });
     this.selected = new Set(suite.allTests().map((t) => t.title));
   }
@@ -65,6 +67,7 @@ export default class SalesReporter implements Reporter {
     });
   }
   onEnd(result: FullResult) {
+    if (this.listing) return;
     const cases = salesCases.map(
       (c) =>
         this.results.get(c.id) ?? {
