@@ -54,7 +54,7 @@ npm run aws-sales:sso
 
 未認証受注テストは `AWS_SSO_JOURNAL` を必須とする。`manage prepare` で作成したprepared・未blockedのjournalを指定する。従来の `AWS_SSO_DB_*` は使用せず、journalの実行専用DB名・専用ユーザー・CAを使用する。AWS identity/context、namespace/PodのラベルとUID、Secret/CA、DNS→ALB→Ingress→Service→アプリPod→DB設定を既存 `verifyTarget()` で照合する。さらに実際に試験する同一MySQLセッションでDB名・実効ユーザー・DB所有マーカーを確認する。private RDSには所有確認済みbridge Podと非TTY `kubectl exec -i` で中継し、ローカルmysql2でCA・RDSホスト名を検証する。公開RDS、TLS無効化、管理ユーザー、通常/shared DBへのフォールバックはない。
 
-journalの排他と既存業務試験と共通のDB advisory lockをAfter完了まで保持する。接続・権限・所有不一致は失敗となり、秘密を含まないエラーコードだけを報告する。復元/ロック解放失敗時はjournalをblockedとして保持し、[recover/cleanup手順](../tests/aws-sales/README.md)で復旧する。同じjournalを別worktreeへコピーして並行実行しない。回復時も当該journalの所有確認済み専用DBのみを対象にする。テスト前後に次の全行とsync_state・sales_lock・aws_test_ownerを比較する。結果や認証情報をログに出さない。
+journalの排他と既存業務試験と共通のDB advisory lockをAfter完了まで保持する。接続・権限・所有不一致は失敗となり、秘密を含まないエラーコードだけを報告する。DB接続確認を含む操作の前に `blocked=true / phase=recovery-required` を保存し、試験・復元・ロック解放・接続終了のすべてが正常完了した場合だけ `prepared / blocked=false` に戻す。強制終了や失敗時はエラー名に関係なく復旧必要状態を保持する。排他ファイルのunlockだけでは再実行できないため、[recover/cleanup手順](../tests/aws-sales/README.md)で復旧する。同じjournalを別worktreeへコピーして並行実行しない。回復時も当該journalの所有確認済み専用DBのみを対象にする。テスト前後に次の全行とsync_state・sales_lock・aws_test_ownerを比較する。結果や認証情報をログに出さない。
 
 ```sql
 SELECT order_id, product_code, quantity, unit_price, status FROM orders ORDER BY order_id;

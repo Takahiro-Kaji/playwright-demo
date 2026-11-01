@@ -41,6 +41,8 @@ PR #8は取り込み済みで、今回cleanupは専用namespaceのIngress/ALB/DB
 ## Issue #11: SSO未認証受注と専用DBの接続
 
 - `AWS_SSO_JOURNAL` 必須。preparedかつ所有確認済みの実行専用DB・専用ユーザーを使い、既存 `verifyTarget()` と同一試験セッションのDB名/実効ユーザー/所有マーカーを照合する。bridge Podからの非TTY exec中継とCA/ホスト名検証を維持し、通常DB・管理者・直接TCPへのフォールバックは廃止。
-- 専用商品の挿入、未認証HTTPのCognito 302判定、想定外受注も含む削除、全業務表・ロック行・所有マーカーの前後比較を行う。journal排他とDB advisory lockをAfter終了まで保持し、復元やロック解放失敗時はblockedにする。
-- `sales:check` 成功、`aws-sales:verify` 55件成功。ローカルMySQL 9.2.0の破棄可能な専用環境で `mysql-tls.test.sh` も成功。実SQLによるTLS付きexec中継・専用ユーザー/DB・復元・想定外受注・同期差分・権限不足・ホスト名不一致を確認した。ローカル試験のAWS/ALB確認は模擬。
+- 専用商品の挿入、未認証HTTPのCognito 302判定、想定外受注も含む削除、全業務表・ロック行・所有マーカーの前後比較を行う。journal排他とDB advisory lockをAfter終了まで保持し、DB接続確認前に `recovery-required / blocked=true` を保存し、試験・復元・ロック解放・接続終了がすべて正常完了した場合だけ解除する。強制終了・任意の失敗は復旧必要状態を保持し、エラー名の文字列判定は使用しない。
+- `sales:check` 成功、`aws-sales:verify` 60件成功。ローカルMySQL 9.2.0の破棄可能な専用環境で `mysql-tls.test.sh` も成功。実SQLによるTLS付きexec中継・専用ユーザー/DB・復元・想定外受注・同期差分・権限不足・ホスト名不一致を確認した。ローカル試験のAWS/ALB確認は模擬。
 - 今回の変更について実AWS（private RDS MySQL 8.4 / Cognito）での受入は未実施。上記の成功を実AWSの302・前後DB一致の確認として扱わない。
+
+PR #13レビュー対応の回帰では、子プロセスの実SIGKILL後にstale lockを解除しても再実行を拒否すること、ロック解放時のECONNRESET・分類不能エラー・接続終了失敗で復旧必要状態を保持すること、正常完了時だけpreparedへ戻ることを確認した。

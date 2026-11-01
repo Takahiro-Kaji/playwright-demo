@@ -26,10 +26,17 @@ export async function withProbeDatabase(
   let pool: Pool | undefined;
   let connection: PoolConnection | undefined;
   let journal: Journal | undefined;
+  let recoveryStarted = false;
   const failures: unknown[] = [];
   try {
     const j = journal = loadJournal(file);
     checkProbeTarget(j, target);
+    // Persist before any DB work, including verification connections. A killed
+    // process must require recovery even after its stale file lock is removed.
+    j.blocked = true;
+    j.phase = 'recovery-required';
+    saveJournal(file, j);
+    recoveryStarted = true;
     const env = create(file, j);
     // Includes AWS/context identity, owned Pods/Secrets/CA, UI -> ALB -> app -> DB.
     await env.verifyTarget();
@@ -46,10 +53,15 @@ export async function withProbeDatabase(
     try { if (connection) await releaseTestLock(connection); } catch (error) { failures.push(error); }
     try { if (pool) await pool.end(); } catch { failures.push(Error('PROBE_DB_CLOSE_FAILED')); }
     try {
-      if (journal && failures.length) {
+      if (journal && (recoveryStarted || failures.length)) {
         const codes = failures.flatMap(errorCodes);
         journal.lastErrors = [...new Set([...(journal.lastErrors || []), ...codes])];
-        if (codes.some(code => /CLEANUP|LOCK_LOST|CLOSE_FAILED/.test(code))) journal.blocked = true;
+        // Only a completed probe/After, lock release AND pool shutdown allow
+        // reuse. Every failure retains recovery-required, regardless of its name.
+        if (recoveryStarted && failures.length === 0) {
+          journal.blocked = false;
+          journal.phase = 'prepared';
+        }
         saveJournal(file, journal);
       }
     } finally { unlock(); }
