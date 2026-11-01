@@ -10,6 +10,9 @@ import { compareCatalog } from "../../targets/sales/compare.ts";
 import { DatabaseSync } from "node:sqlite";
 import { syncDisplayMatches } from "../../targets/sales/sync-display.ts";
 
+// { page }はPlaywrightのページfixture。asyncが返すPromiseをawaitして結果や失敗を受け取る。
+// test.stepはレポートの区切り。通常値のexpectはその場で比較し、locatorへのexpectは再試行する。
+// annotationは各ケースの判定や後片付けをレポーターが集計するために使う。
 const f2 = {
   catalogVersion: 2,
   products: [

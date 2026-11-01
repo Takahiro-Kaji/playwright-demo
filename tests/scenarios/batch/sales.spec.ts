@@ -5,6 +5,8 @@ import { harness } from "../../targets/sales/harness.ts";
 import { compareCatalog } from "../../targets/sales/compare.ts";
 import { DatabaseSync } from "node:sqlite";
 
+// asyncはPromiseを返し、awaitは完了した結果を受け取る。失敗した場合は例外になる。
+// test.stepはレポートの区切り。通常値のexpectはその時点で比較し、annotationは判定集計に使う。
 // F1の正解は実行前に固定する。取得した応答をそのまま正解にはしない。
 const expected = [
   { productCode: "P001", name: "ペン", price: 120, active: true, quantity: 5 },

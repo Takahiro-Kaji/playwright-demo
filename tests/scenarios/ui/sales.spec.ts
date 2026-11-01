@@ -3,7 +3,13 @@ import { test, expect } from "@playwright/test";
 import { settleAfter } from "../../../test-support/after.ts";
 import { harness } from "../../targets/sales/harness.ts";
 
-// UI-01: F1からの正常受注。locatorのclickやexpectは条件成立まで自動待機する。
+// 各testのasync関数はPromiseを返し、awaitはその結果または失敗を待つ。
+// { page }はPlaywrightがケースごとに用意するページfixtureを受け取る書き方。
+// test.stepは処理をレポート上で区切る。Given→When→Then→Afterの流れを追える。
+// 通常値のexpectはその時点の値を比較し、locatorへのexpectは条件成立まで再試行する。
+// locatorのclickは操作可能な状態を自動待機するが、任意の処理がすべて完了する保証ではない。
+// annotationは業務判定や後片付けの状態をレポーターに渡して集計するために付ける。
+// UI-01: 契約のF1ではP001は単価120、在庫5、version 1。数量1の受注後は在庫4、version 2。
 test("UI real learning HTTP success", async ({ page }) => {
   const h = await harness("upstream");
   try {
