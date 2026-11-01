@@ -1,3 +1,4 @@
+/** 7ケースのIDとテスト名の対応表。レポーターが未実施も数えるために参照する。 */
 export const salesCases = [
   { id: "UI-01", title: "UI real learning HTTP success" },
   { id: "UI-02", title: "UI mock upstream unavailable" },

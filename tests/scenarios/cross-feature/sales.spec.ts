@@ -1,3 +1,4 @@
+/** 同期中表示・古い表示・不整合受注の3ケース。固定データ、各testのGiven→When→Then→Afterの順に読む。 */
 import { test, expect } from "@playwright/test";
 import { writeFile, mkdir } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
@@ -29,6 +30,7 @@ const f2 = {
   ],
 };
 
+// CROSS-01: 旧・新の固定データを先に作り、同期と参照が重なった証拠を探す。
 test("UI during synchronization", async ({ page }, info) => {
   const h = await harness("upstream");
   const initial = bulkCatalog(1),
@@ -97,6 +99,7 @@ test("UI during synchronization", async ({ page }, info) => {
         });
       };
       observe();
+      // 独立SELECTの開始・終了時刻も記録する。プロセスが動いているだけでは重なりの証拠にならない。
       timer = setInterval(observe, 1);
       running = h.batch().then((code) => {
         batchDone = true;
@@ -119,6 +122,7 @@ test("UI during synchronization", async ({ page }, info) => {
         };
         attempts.push(attempt);
         currentAttempt = attempt;
+        // clickより前に応答待ちを登録する。Promiseは後でawaitし、速い応答も捕捉する。
         const pending = page.waitForResponse(
           (r) => r.url().endsWith("/api/products"),
           { timeout: 3000 },
@@ -198,6 +202,7 @@ test("UI during synchronization", async ({ page }, info) => {
       } finally {
         db.close();
       }
+      // 証拠を捕捉できない場合は未確認。表示やDBの不一致によるFAILとは区別する。
       test.skip(
         !established,
         "同期更新とUI参照の重なりを証明できないため未確認",
@@ -269,6 +274,7 @@ test("UI during synchronization", async ({ page }, info) => {
   }
 });
 
+// CROSS-02: 表示したversion 1のままF2同期後に受注し、拒否とDB不変を確認する。
 test("stale version rejects order", async ({ page }) => {
   const h = await harness("upstream");
   let before: ReturnType<typeof h.snapshot>;
@@ -295,6 +301,7 @@ test("stale version rejects order", async ({ page }) => {
       } finally {
         db.close();
       }
+      // 固定期待でF2を検証した後のsnapshotは、受注操作による変化がないか比較する基準。
       before = h.snapshot();
     });
     let response: import("@playwright/test").Response;
@@ -333,6 +340,7 @@ test("stale version rejects order", async ({ page }) => {
   }
 });
 
+// CROSS-03: 専用DBだけで在庫行を欠落させ、拒否・不変・Afterでの復元を確認する。
 test("inconsistent relationship rejects order", async ({ page }) => {
   const h = await harness("upstream");
   let removed = false;

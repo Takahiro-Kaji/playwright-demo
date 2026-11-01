@@ -1,3 +1,4 @@
+/** 7ケースの業務判定と後片付けを別々に集計する。型、開始・終了時の処理、全体集計の順に読む。 */
 import type {
   Reporter,
   TestCase,
@@ -23,10 +24,12 @@ export default class SalesReporter implements Reporter {
   readonly runId = randomUUID();
   selected = new Set<string>();
   results = new Map<string, CaseResult>();
+  /** 実行対象suiteから選択されたケースを記録する。_configは設定、戻り値なし。書込み失敗は例外。 */
   onBegin(_config: FullConfig, suite: Suite) {
     mkdirSync(".local/sales-learning-evidence", { recursive: true });
     this.selected = new Set(suite.allTests().map((t) => t.title));
   }
+  /** testとresultから業務判定とAfterを分けて保存する。戻り値なし。通常は例外を送出しない。 */
   onTestEnd(test: TestCase, result: TestResult) {
     const item = salesCases.find((c) => c.title === test.title);
     if (!item) return;
@@ -64,6 +67,7 @@ export default class SalesReporter implements Reporter {
       )?.description,
     });
   }
+  /** 全ケースを集計し証跡を書く。resultはPlaywright全体結果。必要なら失敗statusを返す。書込み失敗は例外。 */
   onEnd(result: FullResult) {
     const cases = salesCases.map(
       (c) =>
@@ -79,6 +83,7 @@ export default class SalesReporter implements Reporter {
       selectedIds: cases.filter((c) => c.selected).map((c) => c.id),
       allSevenSelected: cases.every((c) => c.selected),
     };
+    // 7件すべてのPASSとAfter確認が揃う場合だけ全体PASS。未実施・未確認はFAILと区別する。
     const caseStatus = cases.some((c) => c.caseStatus === "failed")
       ? "failed"
       : cases.every(

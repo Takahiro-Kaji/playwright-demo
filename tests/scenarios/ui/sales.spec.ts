@@ -1,7 +1,9 @@
+/** 画面から実HTTP正常・モック障害を確かめる2ケース。各testをGiven→When→Then→Afterの順に読む。 */
 import { test, expect } from "@playwright/test";
 import { settleAfter } from "../../../test-support/after.ts";
 import { harness } from "../../targets/sales/harness.ts";
 
+// UI-01: F1からの正常受注。locatorのclickやexpectは条件成立まで自動待機する。
 test("UI real learning HTTP success", async ({ page }) => {
   const h = await harness("upstream");
   try {
@@ -13,6 +15,7 @@ test("UI real learning HTTP success", async ({ page }) => {
       await page.getByRole("button", { name: "外部接続確認" }).click();
       await expect(page.locator("#availability-result")).toHaveText("接続可能");
       await page.getByRole("button", { name: "商品表示" }).click();
+      // 応答がクリック直後に届いても取り逃さないよう、待機Promiseを先に登録する。
       const response = page.waitForResponse((r) =>
         r.url().endsWith("/api/orders"),
       );
@@ -58,6 +61,7 @@ test("UI real learning HTTP success", async ({ page }) => {
   }
 });
 
+// UI-02: 管理設定だけでなく実際のGETも503と確認し、画面への影響とDB不変を調べる。
 test("UI mock upstream unavailable", async ({ page }) => {
   const h = await harness("mock");
   let old: number | undefined;
@@ -65,6 +69,7 @@ test("UI mock upstream unavailable", async ({ page }) => {
     let before: unknown;
     await test.step("Given: F1とモック503", async () => {
       expect(await h.batch()).toBe(0);
+      // snapshotはWhen前の実状態。固定期待値とは異なり、変更されなかったかの比較に使う。
       before = h.snapshot();
       old = await h.status();
       expect(await h.status(503)).toBe(503);
@@ -95,6 +100,7 @@ test("UI mock upstream unavailable", async ({ page }) => {
     throw error;
   } finally {
     await test.step("After: 設定を復元しプロセスを回収", async () => {
+      // finallyは本体失敗時も実行。復元失敗後も停止を試し、問題があればDBを保持する。
       const errors = await settleAfter([
         async () => {
           if (old !== undefined) {

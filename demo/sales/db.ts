@@ -1,3 +1,4 @@
+/** デモの入力検証・同期・受注を実装する。型、validateCatalog、openDb、sync、orderの順に読む。 */
 import { DatabaseSync } from "node:sqlite";
 import { resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -15,6 +16,9 @@ const integer = (n: unknown, min = 0): n is number =>
   typeof n === "number" && Number.isInteger(n) && n >= min && n <= MAX;
 const keys = (v: object, expected: string[]) =>
   Object.keys(v).sort().join(",") === expected.sort().join(",");
+/**
+ * 外部からのvalueを契約どおり検証しCatalogとして返す。不正な属性・範囲・重複は例外。
+ */
 export function validateCatalog(value: unknown): Catalog {
   if (
     !value ||
@@ -45,6 +49,9 @@ export function validateCatalog(value: unknown): Catalog {
   }
   return c;
 }
+/**
+ * 専用パスfilenameのSQLiteを開き必要な設定と表を用意して接続を返す。パス不正やDB失敗は例外。
+ */
 export function openDb(filename: string): DatabaseSync {
   const root = resolve(process.cwd(), ".local/sales-learning") + sep;
   if (
@@ -60,6 +67,10 @@ export function openDb(filename: string): DatabaseSync {
   CREATE TABLE IF NOT EXISTS sync_state(id INTEGER PRIMARY KEY CHECK(id=1),catalog_version INTEGER NOT NULL);`);
   return db;
 }
+/**
+ * 検証したcをdbに全量反映する。戻り値なし。不整合・桁あふれ・SQL失敗は例外。
+ * 商品・在庫・同期世代を一つのトランザクションでCOMMITし、失敗時はROLLBACKする。
+ */
 export function sync(db: DatabaseSync, c: Catalog) {
   validateCatalog(c);
   db.exec("BEGIN IMMEDIATE");
@@ -113,6 +124,10 @@ export function sync(db: DatabaseSync, c: Catalog) {
     throw e;
   }
 }
+/**
+ * dbの最新状態でinputを検証し、HTTP用statusとbodyを返す。業務拒否は400/409の結果。
+ * SQLなどの予期しない失敗はROLLBACK後に例外。受注・在庫・商品versionは一緒に更新する。
+ */
 export function order(db: DatabaseSync, input: unknown) {
   if (
     !input ||
