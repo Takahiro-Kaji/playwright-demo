@@ -54,3 +54,6 @@ kubectl --context CONTEXT -n integration-demo create configmap sales-catalog \
 ConfigMapの反映は即時ではない。全upstream Podの `/catalog` が期待値を返すことを確認してから同期する。試験後はF1に戻し、実際の応答で復元を確認する。モックのステータスはPod内のメモリに保持されるため、障害注入後は元の値に戻し応答を確認する。両リージョンのサービスはそれぞれ独立しているがDBは共有であり、他リージョンのバッチ・画面操作も停止すること。
 
 `tests/aws-sales/db.ts` にMySQLの一貫した4表スナップショット、固定期待値との全件照合、試験間の協調用MySQL advisory lockを用意している。advisory lockはこのロックを使わない通常業務やバッチを止めないため、専用環境の隔離が別途必要。現時点ではこの部品はAWSの7ケース、DB初期化・故障注入・復元処理には接続されていない。既存データを対象に手動で初期化や故障注入を行わない。
+## 利用後の削除
+
+構築前に [削除・途中失敗時の片付け・残存確認](cleanup/CLEANUP.md) を準備する。専用stateとリソース識別子を保持し、IngressとALBを先に片付けてからTerraform stateを削除する。AWSでの片付け手順は未検証。

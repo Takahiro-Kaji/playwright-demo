@@ -1,0 +1,13 @@
+{
+  "account": "123456789012",
+  "regions": ["ap-northeast-1", "ap-northeast-3"],
+  "contexts": {
+    "ap-northeast-1": "primary-cluster-context",
+    "ap-northeast-3": "secondary-cluster-context"
+  },
+  "states": [
+    {"kind": "infra", "directory": "aws/infra", "workspace": "sales-run-2026", "var_file": "/absolute/path/infra.tfvars"},
+    {"kind": "sso", "region": "ap-northeast-1", "directory": "aws/sso/infra", "workspace": "sales-sso-tokyo-2026", "var_file": "/absolute/path/sso-tokyo.tfvars"},
+    {"kind": "sso", "region": "ap-northeast-3", "directory": "aws/sso/infra", "workspace": "sales-sso-osaka-2026", "var_file": "/absolute/path/sso-osaka.tfvars"}
+  ]
+}
