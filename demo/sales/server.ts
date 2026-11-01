@@ -1,3 +1,4 @@
+/** 学習用外部IF・モック・販売アプリのHTTP入口。fixture、URL制限、各サーバーの順に読む。 */
 import http from "node:http";
 import { readFile } from "node:fs/promises";
 import { openDb, order } from "./db.ts";
@@ -22,6 +23,9 @@ export const fixture = {
     },
   ],
 };
+/**
+ * valueがローカルHTTPのURLか検証しURLを返す。対象外や不正なURLは例外。
+ */
 export function localUrl(value: string): URL {
   const u = new URL(value);
   if (
@@ -33,6 +37,9 @@ export function localUrl(value: string): URL {
     throw Error("LOCAL_URL_REQUIRED");
   return u;
 }
+/**
+ * resへstatusとdataをJSONで返す。戻り値なし。レスポンス書込み失敗は実行環境に伝わる。
+ */
 function json(res: http.ServerResponse, status: number, data: unknown) {
   res.writeHead(status, {
     "content-type": "application/json",
@@ -40,6 +47,9 @@ function json(res: http.ServerResponse, status: number, data: unknown) {
   });
   res.end(JSON.stringify(data));
 }
+/**
+ * reqの本文をサイズ制限付きで読みJSONを返す。超過やJSON不正は例外。
+ */
 async function body(req: http.IncomingMessage) {
   let s = "";
   for await (const b of req) {
@@ -48,6 +58,10 @@ async function body(req: http.IncomingMessage) {
   }
   return JSON.parse(s);
 }
+/**
+ * 学習用外部IFのサーバーを返す。mock時はtokenで管理APIを保護する。短いtokenは例外。
+ * リクエストごとの異常はHTTP応答またはサーバー処理の失敗になる。
+ */
 export function upstreamServer(token: string, mock = false) {
   if (mock && token.length < 32) throw Error("TOKEN_REQUIRED");
   let status = 200;
@@ -86,6 +100,10 @@ export function upstreamServer(token: string, mock = false) {
 }
 const page = `<!doctype html><html lang="ja"><meta charset="utf-8"><title>販売管理</title><h1>販売管理</h1><button id="availability">外部接続確認</button><p id="availability-result" role="status"></p><button id="refresh">商品表示</button><div id="products"></div><p id="result" role="status"></p><script src="/app.js"></script></html>`;
 const script = `const result=document.querySelector('#result'); document.querySelector('#availability').onclick=async()=>{const r=await fetch('/api/availability');document.querySelector('#availability-result').textContent=r.ok?'接続可能':'外部システムエラー'};document.querySelector('#refresh').onclick=async()=>{const r=await fetch('/api/products');const data=await r.json();const root=document.querySelector('#products');root.replaceChildren();if(!r.ok){result.textContent='商品情報に不整合があります';return}for(const p of data.products){const box=document.createElement('div');box.textContent=p.name+' '+p.price+'円 在庫'+p.quantity;const button=document.createElement('button');button.textContent='受注';button.dataset.productCode=p.productCode;button.onclick=async()=>{const response=await fetch('/api/orders',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({productCode:p.productCode,quantity:1,version:p.version})});const value=await response.json();result.textContent=response.ok?'受注しました':({INCONSISTENT_DATA:'商品情報に不整合があります',STALE_VERSION:'情報が更新されました。再表示してください',ORDER_UNAVAILABLE:'受注できません'}[value.error]||'受注できません')};box.append(button);root.append(box)}};`;
+/**
+ * dbとupstreamを使う販売アプリのサーバーを返す。ローカル外URLは例外。
+ * リクエストの予期しない処理失敗はHTTP 500にする。
+ */
 export function appServer(db: DatabaseSync, upstream: string) {
   const url = localUrl(upstream);
   return http.createServer(async (req, res) => {

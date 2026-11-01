@@ -1,3 +1,4 @@
+/** 明示した対象にJob操作を渡す共通アダプター。型、runner、開始・待機・停止の順に読む。実クラスタ検証とは別。 */
 import { spawn } from "node:child_process";
 const namePattern = /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/;
 export type JobTarget = { context: string; namespace: string; job: string };
@@ -6,6 +7,10 @@ export type Runner = (
   args: string[],
   timeoutMs: number,
 ) => Promise<CommandResult>;
+/**
+ * binaryをシェルなしで起動するRunnerを返す。Runnerは引数配列と期限を受け終了結果を返す。
+ * 起動失敗や期限切れはrejectする。終了コード自体の判定は呼び出し側が行う。
+ */
 export function makeRunner(binary = "kubectl"): Runner {
   return (args, timeoutMs) =>
     new Promise((resolve, reject) => {
@@ -39,6 +44,9 @@ export function makeRunner(binary = "kubectl"): Runner {
       });
     });
 }
+/**
+ * 対象tの名前を検証してcontextとnamespaceの引数を返す。不正な対象は例外。
+ */
 function args(t: JobTarget) {
   if (
     !t.context ||
@@ -50,6 +58,10 @@ function args(t: JobTarget) {
     throw Error("INVALID_TARGET");
   return ["--context", t.context, "--namespace", t.namespace];
 }
+/**
+ * 対象tにcronJobからJobを作成する。runは実行器、timeoutMsは期限。戻り値なし。
+ * 対象不正・コマンド失敗・期限切れは例外。
+ */
 export async function startJob(
   t: JobTarget,
   cronJob: string,
@@ -63,6 +75,10 @@ export async function startJob(
   );
   if (r.code !== 0) throw Error("JOB_START_FAILED");
 }
+/**
+ * 対象tのJobをrunでpollMs間隔で確認し、complete・failed・timeoutを返す。
+ * timeoutMsは待機期限。対象不正、取得失敗、JSON不正などは例外。
+ */
 export async function waitJob(
   t: JobTarget,
   run: Runner,
@@ -90,6 +106,10 @@ export async function waitJob(
   }
   return "timeout";
 }
+/**
+ * 対象tのJobを削除し、runで不在も確認する。timeoutMsは期限。戻り値なし。
+ * 削除や不在確認ができなければ例外で未確認を知らせる。
+ */
 export async function stopJob(t: JobTarget, run: Runner, timeoutMs: number) {
   const prefix = args(t);
   const end = Date.now() + timeoutMs;

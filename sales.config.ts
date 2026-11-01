@@ -1,3 +1,4 @@
+/** 学習デモ専用のPlaywright設定。対象・実行条件・証跡設定の順に読む。 */
 import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: "tests/scenarios",

@@ -1,9 +1,13 @@
+/** 同期バッチの全件照合と上流障害を確かめる2ケース。固定期待値、各test、Afterの順に読む。 */
 import { test, expect } from "@playwright/test";
 import { settleAfter } from "../../../test-support/after.ts";
 import { harness } from "../../targets/sales/harness.ts";
 import { compareCatalog } from "../../targets/sales/compare.ts";
 import { DatabaseSync } from "node:sqlite";
 
+// asyncはPromiseを返し、awaitは完了した結果を受け取る。失敗した場合は例外になる。
+// test.stepはレポートの区切り。通常値のexpectはその時点で比較し、annotationは判定集計に使う。
+// F1の正解は実行前に固定する。取得した応答をそのまま正解にはしない。
 const expected = [
   { productCode: "P001", name: "ペン", price: 120, active: true, quantity: 5 },
   {
@@ -14,6 +18,7 @@ const expected = [
     quantity: 2,
   },
 ];
+// BATCH-01: 終了コードだけでなく、商品・在庫・関連など全体を固定期待と照合する。
 test("batch real learning HTTP matches all rows", async () => {
   const h = await harness("upstream");
   try {
@@ -61,6 +66,7 @@ test("batch real learning HTTP matches all rows", async () => {
   }
 });
 
+// BATCH-02: モックを503にし、実GETで障害を確認してから失敗と全表不変を調べる。
 test("batch mock failure leaves all state unchanged", async () => {
   const h = await harness("mock");
   let old: number | undefined;
@@ -68,6 +74,7 @@ test("batch mock failure leaves all state unchanged", async () => {
   try {
     await test.step("Given: F1と503応答", async () => {
       expect(await h.batch()).toBe(0);
+      // これは不変比較の事前スナップショットであり、F1の固定期待値の代わりではない。
       before = h.query("SELECT * FROM products ORDER BY product_code");
       stock = h.query("SELECT * FROM inventory ORDER BY product_code");
       state = h.query("SELECT * FROM sync_state");
