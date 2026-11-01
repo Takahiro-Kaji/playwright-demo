@@ -8,7 +8,7 @@ import { appServer, fixture } from "../../../demo/sales/server.ts";
 import { snapshotSales } from "../../targets/sales/snapshot.ts";
 import { compareCatalog } from "../../targets/sales/compare.ts";
 
-test("shared DB: scoped sync, display and orders preserve existing business records", async () => {
+test("共有DBでスコープ内の同期・表示・受注が既存データを維持する", async () => {
   const dir = `.local/sales-learning/${randomUUID()}`;
   mkdirSync(dir, { recursive: true });
   const db = openDb(`${dir}/sales.sqlite`);
@@ -39,7 +39,31 @@ test("shared DB: scoped sync, display and orders preserve existing business reco
       order(db, { productCode: "P001", quantity: 1, version: 1 }).status,
       201,
     );
-    const before = snapshotSales(db);
+    const existing = () => ({
+      products: db
+        .prepare(
+          "SELECT * FROM products WHERE product_code IN ('P001','P002') ORDER BY product_code",
+        )
+        .all(),
+      inventory: db
+        .prepare(
+          "SELECT * FROM inventory WHERE product_code IN ('P001','P002') ORDER BY product_code",
+        )
+        .all(),
+      orders: db
+        .prepare(
+          "SELECT * FROM orders WHERE product_code IN ('P001','P002') ORDER BY order_id",
+        )
+        .all(),
+      syncState: db.prepare("SELECT * FROM sync_state WHERE id=1").all(),
+    });
+    const before = existing();
+    const owned = () => ({
+      sync: snapshotSales(db, scope, { kind: "sync" }),
+      order: snapshotSales(db, scope, {
+        kind: "order",
+      }),
+    });
     sync(db, catalog, scope);
     assert.deepEqual(
       compareCatalog(
@@ -54,9 +78,9 @@ test("shared DB: scoped sync, display and orders preserve existing business reco
       ),
       [],
     );
-    const after = snapshotSales(db, scope);
+    const after = owned();
     assert.throws(() => sync(db, fixture, scope), /CATALOG_OUTSIDE_SCOPE/);
-    assert.deepEqual(snapshotSales(db, scope), after);
+    assert.deepEqual(owned(), after);
     await new Promise<void>((resolve) =>
       server.listen(0, "127.0.0.1", resolve),
     );
@@ -92,7 +116,7 @@ test("shared DB: scoped sync, display and orders preserve existing business reco
     assert.deepEqual(await unavailable.json(), {
       error: "UPSTREAM_UNAVAILABLE",
     });
-    assert.deepEqual(snapshotSales(db, scope), after);
+    assert.deepEqual(owned(), after);
     upstreamStatus = 200;
     const response = await fetch(url + "/api/orders", {
       method: "POST",
@@ -114,7 +138,7 @@ test("shared DB: scoped sync, display and orders preserve existing business reco
       scope + "P001",
     );
     // 接続先が停止した場合も、受注・在庫・versionを変更しない。
-    const afterOrder = snapshotSales(db, scope);
+    const afterOrder = owned();
     await new Promise<void>((resolve, reject) =>
       upstream.close((error) => (error ? reject(error) : resolve())),
     );
@@ -123,7 +147,7 @@ test("shared DB: scoped sync, display and orders preserve existing business reco
     assert.deepEqual(await disconnected.json(), {
       error: "UPSTREAM_UNAVAILABLE",
     });
-    assert.deepEqual(snapshotSales(db, scope), afterOrder);
+    assert.deepEqual(owned(), afterOrder);
     // 空の全量同期でも、別の商品群・既存の受注は無効化や削除をしない。
     sync(db, { catalogVersion: 2, products: [] }, scope);
     for (const table of ["orders", "inventory", "products"])
@@ -131,7 +155,7 @@ test("shared DB: scoped sync, display and orders preserve existing business reco
         scope + "*",
       );
     db.prepare("DELETE FROM sales_sync_scopes WHERE scope=?").run(scope);
-    assert.deepEqual(snapshotSales(db), before);
+    assert.deepEqual(existing(), before);
   } finally {
     if (server.listening)
       await new Promise<void>((resolve, reject) =>

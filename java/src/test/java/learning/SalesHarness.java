@@ -41,7 +41,7 @@ final class SalesHarness implements AutoCloseable {
   }
 
   // デモの期待値は実際の DB や API 応答から生成せず、事前に固定する。
-  /** version が1なら F1、2なら F2 を表す固定データを返す。 */
+  /** version が1なら データセット1、2なら データセット2 を表す固定データを返す。 */
   static Map<String, Object> fixture(int version) {
     return Map.of(
         "catalogVersion",

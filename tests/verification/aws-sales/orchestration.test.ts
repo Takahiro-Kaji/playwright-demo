@@ -15,7 +15,7 @@ import { manifests } from "../../aws-sales/resources.ts";
 import { Environment, checkEnv, until } from "../../aws-sales/lifecycle.ts";
 import { mkdirSync } from "node:fs";
 
-test("configuration and journal fail closed on target changes", () => {
+test("対象が変わったら設定と復旧記録の検証で処理を止める", () => {
   const f = fixture();
   try {
     a.throws(() =>
@@ -30,7 +30,7 @@ test("configuration and journal fail closed on target changes", () => {
     f.close();
   }
 });
-test("pod and batch DB identity rejects another schema or principal", () => {
+test("PodとバッチのDB識別確認で別スキーマ・接続ユーザーを拒否する", () => {
   const f = fixture();
   try {
     const app = manifests(f.j).app.spec.template.spec.containers[0];
@@ -43,7 +43,7 @@ test("pod and batch DB identity rejects another schema or principal", () => {
     f.close();
   }
 });
-test("lost create response reconciles only an owned UID and records it", async () => {
+test("作成応答を失ったら所有するUIDだけを照合して記録する", async () => {
   const f = fixture();
   let exists = false;
   const object = manifests(f.j).bridge;
@@ -64,7 +64,7 @@ test("lost create response reconciles only an owned UID and records it", async (
     f.close();
   }
 });
-test("existing resource is not adopted or mutated", async () => {
+test("既存リソースを流用・変更しない", async () => {
   const f = fixture();
   let creates = 0;
   const object = manifests(f.j).bridge;
@@ -80,7 +80,7 @@ test("existing resource is not adopted or mutated", async () => {
     f.close();
   }
 });
-test("resource labels cannot substitute for a different recorded UID", () => {
+test("リソースのラベルで記録済みUIDの不一致を許可しない", () => {
   const f = fixture();
   try {
     f.j.resources.push({ kind: "Job", name: "job", uid: "old" });
@@ -101,7 +101,7 @@ test("resource labels cannot substitute for a different recorded UID", () => {
     f.close();
   }
 });
-test("Job stop failure blocks subsequent execution and preserves operation failure", async () => {
+test("Jobの停止失敗で後続を止め元の処理失敗を保持する", async () => {
   const f = fixture();
   const env = new Environment(f.file, f.j);
   env.cluster.verify = async () => manifests(f.j).cron;
@@ -121,7 +121,7 @@ test("Job stop failure blocks subsequent execution and preserves operation failu
     f.close();
   }
 });
-test("restoration attempts upstream recovery but never resets DB with unknown writers", async () => {
+test("上流の復元を試みても書き込み処理の停止が不明ならDBを初期化しない", async () => {
   const f = fixture();
   const env = new Environment(f.file, f.j);
   const called: string[] = [];
@@ -142,7 +142,7 @@ test("restoration attempts upstream recovery but never resets DB with unknown wr
     f.close();
   }
 });
-test("mock control and actual HTTP state are independently validated", async () => {
+test("モック管理応答と実際のHTTP状態を別々に検証する", async () => {
   const f = fixture();
   const env = new Environment(f.file, f.j);
   try {
@@ -156,14 +156,14 @@ test("mock control and actual HTTP state are independently validated", async () 
     f.close();
   }
 });
-test("polling timeout cannot be a success", async () => {
+test("ポーリングの期限切れを成功にしない", async () => {
   await a.rejects(
     until(async () => false, 1, "TEST_TIMEOUT", 1),
     /TEST_TIMEOUT/,
   );
 });
 
-test("target verification rejects a regular URL routed to another ALB pod", async () => {
+test("通常URLが別のALB配下のPodに届いたら対象照合で拒否する", async () => {
   const f = fixture();
   const env = new Environment(f.file, f.j);
   const m = manifests(f.j);
@@ -284,7 +284,7 @@ test("target verification rejects a regular URL routed to another ALB pod", asyn
   }
 });
 
-test("AWS identity and kubeconfig CA drift are rejected before mutation", async () => {
+test("AWSの識別情報とkubeconfigのCAの変化を更新前に拒否する", async () => {
   const f = fixture();
   let account = "999999999999";
   const run: Command = async (binary, args) => {

@@ -36,7 +36,7 @@ const test = batchTest.extend({
   },
 });
 for (const id of ["BATCH-01", "BATCH-02"])
-  test(`${id} fixture without authentication`, async ({ h }) =>
+  test(`${id} 認証なしでバッチ用の環境を利用できる`, async ({ h }) =>
     business(h, async () => {
       if ("page" in h || "context" in h)
         throw Error("BATCH_MUST_NOT_RECEIVE_UI_OBJECT");

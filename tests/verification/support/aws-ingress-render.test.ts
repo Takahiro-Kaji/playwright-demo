@@ -9,7 +9,7 @@ const env = {
 function render(runId: string) {
   return spawnSync(process.execPath,['aws/sso/render-ingress.cjs'],{encoding:'utf8',env:{...process.env,...env,SALES_RUN_ID:runId}});
 }
-test('SSO ingress and app resolve to the same run namespace', () => {
+test('SSOのIngressとアプリが同じ実行用名前空間を参照する', () => {
   const id='0123456789abcdef0123456789abcdef';
   const r=render(id);
   assert.equal(r.status,0);
@@ -17,7 +17,7 @@ test('SSO ingress and app resolve to the same run namespace', () => {
   assert.match(r.stdout,/name: sales-app/);
   assert.match(r.stdout,/host: 'sales\.example\.test'/);
 });
-test('SSO ingress preserves the default and rejects invalid identifiers', () => {
+test('SSOのIngressは既定値を維持し不正な識別子を拒否する', () => {
   const standard=render('');
   assert.equal(standard.status,0);
   assert.match(standard.stdout,/namespace: integration-demo/);

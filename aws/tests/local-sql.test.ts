@@ -13,7 +13,7 @@ import {
 const file =
   process.env.AWS_SALES_LOCAL_JOURNAL ||
   ".local/aws-sales-qa/local-journal.json";
-test("real SQL faults, restricted privileges, restoration, and actual Job timeout stop", async () => {
+test("実SQLの故障・権限制限・復元・実Jobの期限切れ停止を確認する", async () => {
   const j = loadJournal(file),
     env = localEnvironment(file, j),
     db = await env.pool(),

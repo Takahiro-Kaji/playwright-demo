@@ -198,13 +198,14 @@ class SalesScenariosTest {
         () -> page.locator("[data-product-code='P001']").click());
   }
 
-  /** F1 の事前固定期待値を4表の snapshot と比較する。引数・戻り値はない。 */
-  void expectF1() throws Exception {
-    assertEquals(List.of(), CatalogCheck.differences(CatalogCheck.f1(), h.snapshot()));
+  /** データセット1 の事前固定期待値を4表の snapshot と比較する。引数・戻り値はない。 */
+  void expectDataset1() throws Exception {
+    assertEquals(List.of(), CatalogCheck.differences(CatalogCheck.dataset1(), h.snapshot()));
   }
 
-  // ケース1: F1 を同期 → 画面から受注 → 受注結果と4表を照合。
+  // ケース1: データセット1 を同期 → 画面から受注 → 受注結果と4表を照合。
   @Test
+  @DisplayName("画面から外部接続を確認して正常に受注できる")
   @Order(1)
   void uiReal() throws Exception {
     run(
@@ -246,6 +247,7 @@ class SalesScenariosTest {
 
   // ケース2: 商品表示後に上流を503に設定 → 受注 → 502表示と4表の不変を確認。After で復元する。
   @Test
+  @DisplayName("外部IF障害時は受注に失敗し関連データが変わらない")
   @Order(2)
   void uiMock() throws Exception {
     run(
@@ -268,8 +270,9 @@ class SalesScenariosTest {
         });
   }
 
-  // ケース3: 実 HTTP の F1 を取得 → バッチ実行 → 独立した固定期待値と4表を比較。
+  // ケース3: 実 HTTP の データセット1 を取得 → バッチ実行 → 独立した固定期待値と4表を比較。
   @Test
+  @DisplayName("同期バッチの結果が全件の固定期待値と一致する")
   @Order(3)
   void batchReal() throws Exception {
     run(
@@ -282,13 +285,14 @@ class SalesScenariosTest {
           // When: 実 HTTP を使う同期バッチを実行する。
           sync();
           // Then: 終了コードだけでなく独立した固定期待値で全表を比較する。
-          expectF1();
+          expectDataset1();
           // After: 共通の cleanup で復元・停止を確認する。
         });
   }
 
   // ケース4: 上流503 → バッチ失敗 → 失敗前後の4表が同じことを確認。
   @Test
+  @DisplayName("外部IF障害時は同期に失敗し対象データが変わらない")
   @Order(4)
   void batchMock() throws Exception {
     run(
@@ -309,6 +313,7 @@ class SalesScenariosTest {
 
   // ケース5: 3000件で同期と画面参照を並行し、実際に重なりを観測できたか判定する。
   @Test
+  @DisplayName("同期中の商品表示が旧状態または新状態で一貫する")
   @Order(5)
   void syncUi() throws Exception {
     run(
@@ -324,6 +329,7 @@ class SalesScenariosTest {
 
   // ケース6: 旧版を表示後に新版へ同期 → 旧画面で受注 → 409 と4表不変。
   @Test
+  @DisplayName("古い表示からの受注を拒否する")
   @Order(6)
   void staleOrder() throws Exception {
     run(
@@ -356,6 +362,7 @@ class SalesScenariosTest {
 
   // ケース7: 在庫行を意図的に欠落 → 受注 → 409 と4表不変。After で在庫行を戻す。
   @Test
+  @DisplayName("商品と在庫が不整合な場合は受注を拒否する")
   @Order(7)
   void inconsistentOrder() throws Exception {
     run(

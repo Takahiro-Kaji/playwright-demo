@@ -11,7 +11,7 @@ import {
 import { resolve, join } from "node:path";
 import { authSettings } from "../../../test-support/auth/fixture.ts";
 
-test("SSO settings activate automatically and require complete valid configuration", () => {
+test("SSO設定は自動で有効になり有効な設定一式を必須とする", () => {
   assert.equal(authSettings({}), undefined);
   assert.equal(
     authSettings({ SALES_AUTH_ENABLED: "0", SALES_AUTH_STATE: "x" }),
@@ -42,7 +42,7 @@ test("SSO settings activate automatically and require complete valid configurati
   );
 });
 
-test("real application template refuses to run without authentication", () => {
+test("実アプリ用テンプレートは未認証での実行を拒否する", () => {
   const result = spawnSync(
     process.execPath,
     [
@@ -61,7 +61,7 @@ test("real application template refuses to run without authentication", () => {
   assert.match(result.stdout + result.stderr, /REAL_APP_AUTH_REQUIRED/);
 });
 
-test("SSO fixture loads cookies and blocks business actions for expired or missing state", () => {
+test("SSO環境でCookieを読み込み認証状態の失効・欠落時は業務操作を止める", () => {
   mkdirSync(".local/auth", { recursive: true });
   const dir = mkdtempSync(resolve(".local/auth/fixture-test-"));
   const state = join(dir, "state.json"),

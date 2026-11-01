@@ -5,7 +5,7 @@ import { writeFileSync, existsSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fixture } from "./fixtures.ts";
 for (const mode of ["missing", "expired"])
-  test(`UI fixture rejects ${mode} authentication before target mutation`, () => {
+  test(`UI環境は対象の更新前に認証状態 ${mode} を拒否する`, () => {
     const f = fixture(),
       target = join(f.dir, "target");
     f.j.phase = "prepared";

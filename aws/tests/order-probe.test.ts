@@ -34,18 +34,18 @@ function fakeDb(failCleanup = false) {
   return { db: db as unknown as Connection, addOrder() { orders++; }, status() { return {product, inventory, orders, begun}; } };
 }
 
-test('successful redirect removes fixture and compares DB', async () => {
+test('正常なリダイレクト後に準備データを削除しDBを照合する', async () => {
   const f = fakeDb(); await probeOrder(f.db, async () => {}, () => code);
   assert.deepEqual(f.status(), {product:false, inventory:false, orders:0, begun:2});
 });
-test('created order and lost response are removed even on failure', async () => {
+test('応答を失った受注も失敗時に削除する', async () => {
   const f = fakeDb(); await assert.rejects(probeOrder(f.db, async () => { f.addOrder(); throw Error('lost response'); }, () => code), /UNAUTHORIZED_ORDER_CREATED/);
   assert.deepEqual(f.status(), {product:false, inventory:false, orders:0, begun:2});
 });
-test('order despite redirect is detected and removed', async () => {
+test('リダイレクトされたのに作成された受注を検出・削除する', async () => {
   const f = fakeDb(); await assert.rejects(probeOrder(f.db, async () => { f.addOrder(); }, () => code), /UNAUTHORIZED_ORDER_CREATED/);
   assert.deepEqual(f.status(), {product:false, inventory:false, orders:0, begun:2});
 });
-test('probe and cleanup failures remain distinguishable', async () => {
+test('確認処理と後片付けの失敗を区別して保持する', async () => {
   const f = fakeDb(true); await assert.rejects(probeOrder(f.db, async () => { throw Error('failure'); }, () => code), (e: Error) => e instanceof AggregateError && e.message === 'PROBE_AND_CLEANUP_FAILED' && e.errors.length === 2);
 });

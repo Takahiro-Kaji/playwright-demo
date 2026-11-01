@@ -57,7 +57,7 @@ const test = production.extend({
     }
   },
 });
-test("UI-01 injected body and After", async ({ uiHarness: h }) =>
+test("UI-01 本体と後処理に故障を注入する", async ({ uiHarness: h }) =>
   business(h, async () => {
     if (process.env.INJECT_BODY === "1") throw Error("INJECTED_BODY_FAILURE");
     if (process.env.INJECT_BODY === "timeout")
@@ -66,6 +66,6 @@ test("UI-01 injected body and After", async ({ uiHarness: h }) =>
         30,
       );
   }));
-test("UI-02 must not execute after restoration failure", async () => {
+test("UI-02 復元失敗後は実行しない", async () => {
   writeFileSync(process.env.STOP_MARKER!, "unexpected");
 });

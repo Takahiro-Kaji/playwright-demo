@@ -1,6 +1,6 @@
 import { test } from "@playwright/test";
 import { writeFileSync } from "node:fs";
-test("UI real learning HTTP success", async () => {
+test("画面から外部接続を確認して正常に受注できる", async () => {
   try {
     test.skip(process.env.SALES_BUSINESS_FAILURE === "skip", "unconfirmed");
     if (process.env.SALES_BUSINESS_FAILURE === "1")
@@ -21,6 +21,6 @@ test("UI real learning HTTP success", async () => {
     throw Error("after-failure");
   }
 });
-test("UI mock upstream unavailable", async () => {
+test("外部IF障害時は受注に失敗し関連データが変わらない", async () => {
   writeFileSync(process.env.SALES_HALT_MARKER!, "ran");
 });

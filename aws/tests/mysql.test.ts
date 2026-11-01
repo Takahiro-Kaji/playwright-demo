@@ -6,7 +6,7 @@ import { syncSales, orderSales, products } from '../sales/db.ts';
 
 const port = Number(process.env.TEST_MYSQL_PORT);
 if (!port) throw Error('TEST_MYSQL_PORT_REQUIRED');
-test('sync and competing orders use shared transactional data', async () => {
+test('同期と競合する受注で共有データのトランザクションを確認する', async () => {
   const pool = mysql.createPool({host:'127.0.0.1',port,user:'root',password:'local-test-only',database:'integration_demo',connectionLimit:4, multipleStatements:true});
   try {
     await pool.query(readFileSync('aws/sales/schema.sql','utf8'));

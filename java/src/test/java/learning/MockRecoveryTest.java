@@ -10,10 +10,12 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.DisplayName;
 
 /** HTTP 応答が壊れても、変更前に取得したモック状態へ戻すことを検証する。 */
 class MockRecoveryTest {
   @Test
+  @DisplayName("設定変更が反映され応答が不正な場合も復元する")
   void restoresWhenPutAppliedButResponseIsInvalid() throws Exception {
     AtomicInteger status = new AtomicInteger(200);
     AtomicBoolean corruptNextPut = new AtomicBoolean(true);
@@ -34,6 +36,7 @@ class MockRecoveryTest {
   }
 
   @Test
+  @DisplayName("元の状態が200以外でも復元する")
   void restoresOriginalNon200Status() throws Exception {
     AtomicInteger status = new AtomicInteger(503);
     try (MockServer server = new MockServer(status, new AtomicBoolean(false))) {

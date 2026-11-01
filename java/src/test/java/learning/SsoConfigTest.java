@@ -6,10 +6,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.io.TempDir;
 
 class SsoConfigTest {
   @Test
+  @DisplayName("認証情報・クエリ・フラグメントを含むURLとHTTPS以外を拒否する")
   void rejectsCredentialsQueryFragmentAndNonHttps() {
     assertEquals(
         "https://example.invalid/home",
@@ -28,6 +30,7 @@ class SsoConfigTest {
   }
 
   @Test
+  @DisplayName("認証状態ファイルと親ディレクトリを非公開にする")
   void stateAndParentsArePrivate(@TempDir Path temp) throws Exception {
     Path parent = temp.resolve("sso");
     Path state = SsoManual.createState(parent);
@@ -41,6 +44,7 @@ class SsoConfigTest {
   }
 
   @Test
+  @DisplayName("期限切れ時は対象ワーカーとその子プロセスだけを止める")
   void timeoutStopsOnlyTheWorkerAndItsChild(@TempDir Path temp) throws Exception {
     Path pidFile = temp.resolve("child.pid");
     String script =

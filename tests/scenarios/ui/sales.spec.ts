@@ -1,5 +1,6 @@
 /** 画面から実HTTP正常・モック障害を確かめるテスト。各testをGiven→When→Then→Afterの順に読む。 */
 import { test, expect } from "../../../test-support/auth/fixture.ts";
+import { upstreamErrorStatuses } from "../../../test-support/cases.ts";
 import { settleAfter } from "../../../test-support/after.ts";
 import { harness } from "../../targets/sales/harness.ts";
 
@@ -9,13 +10,13 @@ import { harness } from "../../targets/sales/harness.ts";
 // 通常値のexpectはその時点の値を比較し、locatorへのexpectは条件成立まで再試行する。
 // locatorのclickは操作可能な状態を自動待機するが、任意の処理がすべて完了する保証ではない。
 // annotationは業務判定や後片付けの状態をレポーターに渡して集計するために付ける。
-// UI-01: 契約のF1ではP001は単価120、在庫5、version 1。数量1の受注後は在庫4、version 2。
-test("UI real learning HTTP success", async ({ page }) => {
+// UI-01: 契約のデータセット1ではP001は単価120、在庫5、version 1。数量1の受注後は在庫4、version 2。
+test("画面から外部接続を確認して正常に受注できる", async ({ page }) => {
   const h = await harness("upstream");
   let orderId: string;
   let ordersBefore: ReturnType<typeof h.query>;
   try {
-    await test.step("Given: F1を同期し画面を開く", async () => {
+    await test.step("Given: データセット1を同期し画面を開く", async () => {
       expect(await h.batch()).toBe(0);
       await page.goto(h.app);
     });
@@ -23,8 +24,11 @@ test("UI real learning HTTP success", async ({ page }) => {
       await page.getByRole("button", { name: "外部接続確認" }).click();
       await expect(page.locator("#availability-result")).toHaveText("接続可能");
       await page.getByRole("button", { name: "商品表示" }).click();
-      // 既存の受注を含め、クリック直前の全レコードを保存する。
-      ordersBefore = h.query("SELECT * FROM orders ORDER BY order_id");
+      // 今回のスコープ内の全受注を、クリック直前に保存する。
+      ordersBefore = h.query(
+        "SELECT * FROM orders WHERE product_code GLOB ? ORDER BY order_id",
+        h.scope + "*",
+      );
       // 応答がクリック直後に届いても取り逃さないよう、待機Promiseを先に登録する。
       const response = page.waitForResponse((r) =>
         r.url().endsWith("/api/orders"),
@@ -50,12 +54,15 @@ test("UI real learning HTTP success", async ({ page }) => {
           status: "CREATED",
         },
       ]);
-      const ordersAfter = h.query("SELECT * FROM orders ORDER BY order_id");
+      const ordersAfter = h.query(
+        "SELECT * FROM orders WHERE product_code GLOB ? ORDER BY order_id",
+        h.scope + "*",
+      );
       const beforeIds = new Set(ordersBefore.map((row) => row.order_id));
       const addedOrders = ordersAfter.filter(
         (row) => !beforeIds.has(row.order_id),
       );
-      // 全体で1件増え、追加されたIDが今回の受注IDと一致する。
+      // 今回のスコープ内の受注が1件増え、追加されたIDが今回の受注IDと一致する。
       expect(ordersAfter).toHaveLength(ordersBefore.length + 1);
       expect(addedOrders.map((row) => row.order_id)).toEqual([orderId]);
       // 元からあった受注は、削除・更新されていない。
@@ -91,21 +98,23 @@ test("UI real learning HTTP success", async ({ page }) => {
 
 // UI-02: 商品表示後に外部IFを500・502・503にし、各値で受注失敗の画面とDB不変を調べる。
 // 値ごとに独立したtestを登録し、準備から後片付けまで実行する。
-for (const status of [500, 502, 503]) {
-  test(`UI mock upstream unavailable (${status})`, async ({ page }) => {
+for (const status of upstreamErrorStatuses) {
+  test(`外部IF障害時は受注に失敗し関連データが変わらない (${status})`, async ({
+    page,
+  }) => {
     const h = await harness("mock");
     let old: number | undefined;
     try {
       let before: unknown;
-      await test.step(`Given: F1の商品表示とモック${status}`, async () => {
+      await test.step(`Given: データセット1の商品表示とモック${status}`, async () => {
         expect(await h.batch()).toBe(0);
         await page.goto(h.app);
         await page.getByRole("button", { name: "商品表示" }).click();
         await expect(
           page.locator(`[data-product-code="${h.code("P001")}"]`),
         ).toBeVisible();
-        // snapshotはWhen前の実状態。固定期待値とは異なり、変更されなかったかの比較に使う。
-        before = h.snapshot();
+        // snapshotは今回のスコープ内の商品・在庫・受注のWhen前の実状態。固定期待値とは異なり、変更されなかったかの比較に使う。
+        before = h.snapshot({ kind: "order" });
         old = await h.status();
         expect(await h.status(status)).toBe(status);
         expect((await fetch(h.upstream + "/catalog")).status).toBe(status);
@@ -121,7 +130,7 @@ for (const status of [500, 502, 503]) {
       });
       await test.step("Then: エラー表示と受注・在庫・version不変", async () => {
         await expect(page.locator("#result")).toHaveText("外部システムエラー");
-        expect(h.snapshot()).toEqual(before);
+        expect(h.snapshot({ kind: "order" })).toEqual(before);
       });
       test
         .info()

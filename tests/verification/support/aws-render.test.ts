@@ -6,7 +6,7 @@ const base = {SALES_IMAGE:'123456789012.dkr.ecr.ap-northeast-1.amazonaws.com/sal
 function render(extra: Record<string,string>) {
   return spawnSync(process.execPath, ['aws/render-sales.cjs'], {env:{...process.env,...base,...extra},encoding:'utf8'});
 }
-test('render binds app and batch to the same isolated schema and namespace', () => {
+test('生成設定でアプリとバッチを同じ専用スキーマ・名前空間に結び付ける', () => {
   const id = '0123456789abcdef0123456789abcdef';
   const result = render({SALES_RUN_ID:id});
   assert.equal(result.status,0);
@@ -15,7 +15,7 @@ test('render binds app and batch to the same isolated schema and namespace', () 
   assert.equal((result.stdout.match(new RegExp(`name: DB_NAME, value: sales_test_${id}`, 'g')) || []).length,2);
   assert.match(result.stdout,/activeDeadlineSeconds: 180/);
 });
-test('render rejects unsafe identifiers and retains the standard deployment default', () => {
+test('設定生成は不正な識別子を拒否し標準の配備設定を維持する', () => {
   assert.notEqual(render({SALES_RUN_ID:'../bad'}).status,0);
   const result = render({SALES_RUN_ID:''});
   assert.equal(result.status,0);

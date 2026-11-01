@@ -4,7 +4,7 @@ import java.util.*;
 
 /** 全表の並びと値を、上流や試験対象から生成しない固定期待値と比較する。 */
 final class CatalogCheck {
-  static Map<String, List<List<Object>>> f1() {
+  static Map<String, List<List<Object>>> dataset1() {
     Map<String, List<List<Object>>> expected = new LinkedHashMap<>();
     expected.put(
         "products", List.of(List.of("P001", "ペン", 120, 1, 1), List.of("P002", "ノート", 300, 1, 1)));

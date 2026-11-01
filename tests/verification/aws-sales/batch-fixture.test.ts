@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import { writeFileSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { fixture } from "./fixtures.ts";
-test("both batch fixtures work without state file or browser, retaining target verification", () => {
+test("両バッチ環境は認証状態ファイルとブラウザーなしで対象の照合を維持する", () => {
   const f = fixture();
   f.j.phase = "prepared";
   f.j.config.stateFile = ".local/auth/does-not-exist-" + f.j.runId + ".json";

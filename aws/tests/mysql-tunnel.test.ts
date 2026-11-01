@@ -10,7 +10,7 @@ import mysql from 'mysql2/promise';
 import { createTunnelPool } from '../../tests/aws-sales/mysql-tunnel.ts';
 const socket=process.env.TEST_MYSQL_SOCKET, ca=process.env.TEST_MYSQL_CA;
 if (!socket?.startsWith('/tmp/') || !ca?.startsWith('/tmp/')) throw Error('LOCAL_MYSQL_TLS_SETTINGS_REQUIRED');
-test('binary exec tunnel uses TLS endpoint identity and performs SQL',async()=>{
+test('バイナリのexecトンネルでTLS接続先を検証してSQLを実行する',async()=>{
   const id=randomBytes(16).toString('hex');
   const user=`st${id.slice(0,16)}`, database=`sales_test_${id}`;
   const admin=await mysql.createConnection({socketPath:socket,user:'root'});
