@@ -60,10 +60,14 @@ export async function probeOrder(db: Connection, post: (code: string) => Promise
   if (probeError) throw Error(probeError);
 }
 
-export async function openProbeDatabase(env: NodeJS.ProcessEnv = process.env) {
+export function probeDatabaseConfig(env: NodeJS.ProcessEnv = process.env) {
   const { AWS_SSO_DB_HOST: host, AWS_SSO_DB_USER: user, AWS_SSO_DB_PASSWORD: password, AWS_SSO_DB_CA_FILE: ca } = env;
   if (!host || !user || !password || !ca || !/^[a-z0-9.-]+\.rds\.amazonaws\.com$/.test(host)) throw Error('PROBE_DB_CONFIG_REQUIRED');
-  const db = await mysql.createConnection({ host, user, password, database: 'integration_demo', ssl: { ca: readFileSync(ca), rejectUnauthorized: true }, connectTimeout: 7000 });
+  return { host, user, password, database: 'integration_demo', ssl: { ca: readFileSync(ca), rejectUnauthorized: true, verifyIdentity: true }, connectTimeout: 7000 };
+}
+
+export async function openProbeDatabase(env: NodeJS.ProcessEnv = process.env) {
+  const db = await mysql.createConnection(probeDatabaseConfig(env));
   try { await query(db, 'SET SESSION innodb_lock_wait_timeout = 10'); return db; }
   catch { await db.end(); throw Error('PROBE_DB_CONFIG_FAILED'); }
 }
