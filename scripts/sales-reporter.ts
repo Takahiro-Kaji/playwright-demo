@@ -22,10 +22,12 @@ type CaseResult = {
 };
 export default class SalesReporter implements Reporter {
   readonly runId = randomUUID();
+  private readonly listing = process.argv.includes("--list");
   selected = new Set<string>();
   results = new Map<string, CaseResult>();
   /** 実行対象suiteから選択されたケースを記録する。_configは設定、戻り値なし。書込み失敗は例外。 */
   onBegin(_config: FullConfig, suite: Suite) {
+    if (this.listing) return;
     mkdirSync(".local/sales-learning-evidence", { recursive: true });
     this.selected = new Set(suite.allTests().map((t) => t.title));
   }
@@ -69,6 +71,7 @@ export default class SalesReporter implements Reporter {
   }
   /** 全ケースを集計し証跡を書く。resultはPlaywright全体結果。必要なら失敗statusを返す。書込み失敗は例外。 */
   onEnd(result: FullResult) {
+    if (this.listing) return;
     const cases = salesCases.map(
       (c) =>
         this.results.get(c.id) ?? {
