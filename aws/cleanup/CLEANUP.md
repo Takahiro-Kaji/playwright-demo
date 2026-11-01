@@ -19,6 +19,8 @@ python3 aws/cleanup/cleanup.py inventory .local/cleanup-config.json --output .lo
 
 記録内容を確認し、表示されたアカウント・対象・stateが今回作成したものだけであることを確かめる。検証環境内のVPCに他のALB、EC2等があればinventoryにも含まれ得る。確認結果は手動で精査する。削除コマンドはEKS contextの接続先とAWSアカウントを検証し、ラベル付きの `sales-sso` Ingressだけを削除する。ControllerがALBとターゲットグループを削除するまで待ってから再実行する。未削除ならTerraform破棄に進まない。
 
+破棄直前には、inventoryに記録されたかどうかにかかわらず対象VPC内の現在のALBとターゲットグループをすべて確認し、1件でも残っていれば停止する。一覧取得後に新たに見つかった場合は、AWS上で所有者・用途・IDを調べ、今回のリソースと確認できたものだけを適切な管理手順で片付ける。無関係なリソースは削除しない。元のinventoryを保持し、新しいファイルへ再inventoryして内容を確認した後に再実行する。所有関係を確認できない場合は中断する。
+
 ```sh
 python3 aws/cleanup/cleanup.py destroy .local/cleanup-inventory.json
 python3 aws/cleanup/cleanup.py verify .local/cleanup-inventory.json

@@ -162,7 +162,8 @@ def destroy(snapshot):
     # Controller must finish before cluster and Cognito removal.
     for v in snapshot['vpcs']:
         remaining=collect_vpc(v['region'],v['vpc'])
-        if set(v['load_balancers']) & set(remaining['load_balancers']) or set(v['target_groups']) & set(remaining['target_groups']): raise CleanupError('load balancer or target group remains; wait and retry before destroying states')
+        if remaining['load_balancers'] or remaining['target_groups']:
+            raise CleanupError(f"load balancer or target group remains in {v['region']} VPC {v['vpc']}; inspect ownership before retry")
     # Terraform still prompts for each destroy plan. A failed stage stops the sequence.
     for entry in sorted(snapshot['states'],key=lambda s: s['kind']=='infra'):
         if entry.get('not_started') is True: continue

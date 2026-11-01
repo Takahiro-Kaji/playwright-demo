@@ -34,6 +34,22 @@ class CleanupTests(unittest.TestCase):
         with patch.object(c.subprocess,'run',return_value=type('Result',(),{'returncode':1,'stderr':'access denied'})()):
             with self.assertRaises(c.CleanupError): c.aws('a','ec2','describe-volumes')
 
+    def test_new_load_balancer_or_target_group_blocks_destroy(self):
+        state={'kind':'infra','digest':'a','directory':'/x','workspace':'w','var_file':'/v'}
+        snapshot={'regions':['a','b'],'states':[state], 'vpcs':[{'region':'a','vpc':'vpc-1','load_balancers':[],'target_groups':[]}]}
+        for remaining in ({'load_balancers':['new-lb'],'target_groups':[]},
+                          {'load_balancers':[],'target_groups':['new-tg']}):
+            with self.subTest(remaining=remaining), patch.object(c,'identity'), patch.object(c,'state_details',return_value={'digest':'a'}), patch.object(c,'cluster_context'), patch.object(c,'delete_ingress'), patch.object(c,'collect_vpc',return_value=remaining), patch.object(c.subprocess,'run') as run:
+                with self.assertRaises(c.CleanupError): c.destroy(snapshot)
+                run.assert_not_called()
+
+    def test_empty_current_load_balancers_allow_destroy(self):
+        state={'kind':'infra','digest':'a','directory':'/x','workspace':'w','var_file':'/v'}
+        snapshot={'regions':['a','b'],'states':[state], 'vpcs':[{'region':'a','vpc':'vpc-1','load_balancers':['old-lb'],'target_groups':['old-tg']}]}
+        with patch.object(c,'identity'), patch.object(c,'state_details',return_value={'digest':'a'}), patch.object(c,'cluster_context'), patch.object(c,'delete_ingress'), patch.object(c,'collect_vpc',return_value={'load_balancers':[],'target_groups':[]}), patch.object(c.subprocess,'run',return_value=type('Result',(),{'returncode':0})()) as run:
+            c.destroy(snapshot)
+            run.assert_called_once()
+
     def test_verify_reports_retained_disk_and_missing_inventory(self):
         snapshot={'regions':['a','b'], 'states':[{'kind':'infra','not_started':True,'resources':[]}], 'vpcs':[{'region':'a','vpc':'vpc-1','instances':[],'volumes':['vol-1'],'eips':[],'load_balancers':[],'target_groups':[],'nat_gateways':[]}]}
         responses={
