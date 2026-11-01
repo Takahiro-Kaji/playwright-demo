@@ -4,8 +4,8 @@ import {
   type ExpectedState,
 } from "../targets/sales/compare.ts";
 
-// The advisory lock is shared by cooperative test runs in both regions. It does
-// not exclude ordinary app traffic: the test environment must also be isolated.
+// 両リージョンのテスト実行間で協調ロックを共有する。
+// 通常のアプリ通信は排除できないため、テスト環境自体の隔離も必要。
 export async function acquireTestLock(pool: Pool): Promise<PoolConnection> {
   const connection = await pool.getConnection();
   try {
@@ -15,11 +15,11 @@ export async function acquireTestLock(pool: Pool): Promise<PoolConnection> {
     if (rows[0]?.acquired !== 1) throw Error("AWS_TEST_LOCK_UNAVAILABLE");
     return connection;
   } catch (error) {
-    // GET_LOCK may have succeeded even when the response was lost. Never reuse it.
+    // 応答を失ってもGET_LOCKが成功している可能性があるため、この接続は再利用しない。
     try {
       connection.destroy();
     } catch {
-      /* preserve the acquisition error */
+      /* ロック取得時のエラーを保持する */
     }
     throw error;
   }
@@ -31,11 +31,11 @@ export async function releaseTestLock(connection: PoolConnection) {
     );
     if (rows[0]?.released !== 1) throw Error("AWS_TEST_LOCK_LOST");
   } catch (error) {
-    // A lost response does not establish that the server released the lock.
+    // 応答を失った場合、サーバー側でロックが解放されたとは確認できない。
     try {
       connection.destroy();
     } catch {
-      /* preserve the release error */
+      /* ロック解放時のエラーを保持する */
     }
     throw error;
   }
@@ -59,7 +59,7 @@ export async function snapshotMysql(pool: Pool) {
       "SELECT order_id,product_code,quantity,unit_price,status FROM orders ORDER BY order_id",
     );
     await c.commit();
-    // mysql2 rows have RowDataPacket prototypes; normalize for deep comparisons.
+    // mysql2の行はRowDataPacketのプロトタイプを持つため、内容を比較できる形に正規化する。
     return JSON.parse(JSON.stringify({ products, inventory, sync, orders }));
   } catch (error) {
     await c.rollback();
@@ -72,7 +72,7 @@ export async function compareMysql(pool: Pool, expected: ExpectedState) {
   return compareSalesRows(await snapshotMysql(pool), expected);
 }
 
-/** Confirm the retained session still owns the cooperative lock before mutation. */
+/** 変更前に、保持中のセッションが引き続き協調ロックを所有していることを確認する。 */
 export async function verifyTestLock(connection: PoolConnection) {
   try {
     const [rows] = await connection.query<RowDataPacket[]>(

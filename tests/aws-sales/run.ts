@@ -2,29 +2,29 @@ import { spawn } from "node:child_process";
 import {
   loadJournal,
   exclusive,
-  requireThat as check,
+  assertCondition,
   errorCodes,
   saveJournal,
 } from "./environment.ts";
 import { Environment } from "./lifecycle.ts";
 import { cleanup } from "./cleanup.ts";
 
-/** Prepared run + manual authentication are required. The run is cleaned even on failure. */
+/** 準備済みの実行環境と手動認証が必要。失敗時も実行環境を後片付けする。 */
 export async function runSuite(file: string, args: string[]) {
   const j = loadJournal(file);
-  check(j.phase === "prepared" && !j.blocked, "RUN_REQUIRES_RECOVERY");
-  check(
+  assertCondition(j.phase === "prepared" && !j.blocked, "RUN_REQUIRES_RECOVERY");
+  assertCondition(
     process.env.AWS_SALES_ADMIN_USER && process.env.AWS_SALES_ADMIN_PASSWORD,
     "ADMIN_CREDENTIALS_REQUIRED_FOR_FINAL_CLEANUP",
   );
-  check(
+  assertCondition(
     args.length === 0 ||
       (args.length === 2 &&
         args[0] === "--grep" &&
         /^(UI-0[12]|BATCH-0[12]|CROSS-0[123])$/.test(args[1])),
     "CASE_SELECTION_INVALID",
   );
-  // Do not keep a file lock while the test worker acquires the same run lock.
+  // テストワーカーが同じ実行環境のロックを取得する間は、ファイルロックを保持しない。
   const child = spawn(
     process.execPath,
     [

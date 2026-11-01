@@ -7,7 +7,7 @@ import {
   saveJournal,
   exclusive,
   localPath,
-  requireThat,
+  assertCondition,
   unlockStale,
   errorCodes,
   type Journal,
@@ -15,7 +15,7 @@ import {
 import { Environment } from "./lifecycle.ts";
 import { cleanup } from "./cleanup.ts";
 
-/** prepare / check / recover / cleanup. Never called during test discovery. */
+/** 準備・確認・復旧・削除の操作。テスト検出時には呼び出さない。 */
 export async function manage(
   action: string,
   file: string,
@@ -25,7 +25,7 @@ export async function manage(
 ) {
   localPath(file);
   if (action === "prepare") {
-    requireThat(
+    assertCondition(
       configFile && !existsSync(file),
       "NEW_JOURNAL_AND_CONFIG_REQUIRED",
     );
@@ -91,7 +91,7 @@ export async function manage(
       );
     } else if (action === "auth") {
       await env.verifyTarget();
-      requireThat(process.stdin.isTTY, "INTERACTIVE_TERMINAL_REQUIRED");
+      assertCondition(process.stdin.isTTY, "INTERACTIVE_TERMINAL_REQUIRED");
       const { setupAuth } = await import("../../test-support/auth/setup.ts");
       await setupAuth(
         j.config.stateFile,
@@ -106,7 +106,7 @@ export async function manage(
       await env.cluster.identity();
       await env.cluster.verify("Namespace", j.namespace);
       await env.bridge();
-      // Reconcile every recorded Job before restoring baseline data.
+      // 基準データを復元する前に、記録済みの全Jobの状態を照合する。
       for (const r of j.resources.filter((r) => r.kind === "Job"))
         await env.deleteOwned("Job", r.name);
       for (const name of ["sales-upstream", "sales-app"]) {

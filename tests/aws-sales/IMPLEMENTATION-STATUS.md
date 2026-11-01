@@ -1,6 +1,6 @@
 # AWS業務試験の実装状況
 
-7ケースは `business.spec.ts` → `scenarios.ts` → `harness.ts` / `lifecycle.ts` へ接続済み。準備、対象・所有確認、専用DB/ユーザー、実Job、モック実応答、全件比較、復元、実行結果、専用環境回収を実装した。実行方法と関数対応は [README](README.md) を参照。
+7ケースは `scenarios/{ui,batch,cross-feature}/sales.spec.ts` → `operations.ts` / `harness.ts` / `harness-session.ts` / `lifecycle.ts` へ接続済み。準備、対象・所有確認、専用DB/ユーザー、実Job、モック実応答、全件比較、復元、実行結果、専用環境回収を実装した。実行方法と関数対応は [README](README.md) を参照。
 
 実AWSは未検証。ローカルkind/MySQLによる検証はCognito/ALB/DNS/AWS identityを模擬するため、その範囲を実AWS受入と読み替えない。SQL専用・TLS・中継テストもそれぞれ独立した検証。
 

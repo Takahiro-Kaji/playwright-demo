@@ -1,4 +1,4 @@
-// Disposable local MySQL + binary exec relay; AWS/ALB checks are mocked explicitly.
+// 使い捨てのローカルMySQLとバイナリexec中継を使用する。AWS・ALBの確認は明示的に模擬する。
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
 import { readFileSync, writeFileSync, chmodSync } from 'node:fs';
@@ -37,8 +37,8 @@ test('SSO確認はTLS中継で専用ユーザー・スキーマを使い実デ�
     chmodSync(bin,0o700); process.env.PATH=f.dir; process.env.FAKE_MYSQL_SOCKET=socket;
     const create = (file: string, journal: Journal) => {
       const env = new Environment(file,journal);
-      env.verifyTarget = async () => {}; // AWS/ALB cannot be established locally.
-      env.bridge = async () => ({}); // fake kubectl only replaces transport.
+      env.verifyTarget = async () => {}; // ローカルではAWS・ALBの実環境を確認できない。
+      env.bridge = async () => ({}); // 模擬kubectlは通信経路のみを置き換える。
       return env;
     };
     const target = {target:j.config.url,expected:j.config.url,state:j.config.stateFile,selector:'#refresh',cognitoDomain:'test.auth.ap-northeast-1.amazoncognito.com'};
@@ -56,7 +56,7 @@ test('SSO確認はTLS中継で専用ユーザー・スキーマを使い実デ�
       }
       await assert.rejects(probeOrder(db,async () => {
         await db.query('INSERT INTO sync_state VALUES (1,2)');
-      }), /CLEANUP_FAILED/); // all-table comparison catches non-probe changes.
+      }), /CLEANUP_FAILED/); // 全テーブルの比較により、検証対象外の変更も検出する。
       await db.query('DELETE FROM sync_state');
     },create);
     await admin.query(`REVOKE SELECT ON \`${j.database}\`.aws_test_owner FROM '${j.user}'@'%'`);

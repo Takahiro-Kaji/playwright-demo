@@ -1,6 +1,6 @@
 import type { Response } from "@playwright/test";
 
-/** One deadline covers completion and body retrieval. Never retry a UI request. */
+/** 応答完了と本文取得に共通の制限時間を設ける。UIリクエストは再試行しない。 */
 export async function readResponseJson(response: Response, timeoutMs = 10000) {
   const deadline = performance.now() + timeoutMs;
   async function bounded<T>(operation: () => Promise<T>, phase: string) {
@@ -29,7 +29,7 @@ export async function readResponseJson(response: Response, timeoutMs = 10000) {
   try {
     return JSON.parse(text);
   } catch {
-    // JSON parser errors may contain response data, including an SSO login page.
+    // JSON解析エラーには、SSOログイン画面などのレスポンスデータが含まれ得る。
     throw Error("HTTP_BODY_INVALID_JSON");
   }
 }

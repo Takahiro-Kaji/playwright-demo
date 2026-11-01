@@ -1,14 +1,14 @@
-/** Local QA only. AWS identity/ALB/Cognito are NOT verified by this adapter. */
+/** ローカル検証専用。このアダプターではAWSの識別情報・ALB・Cognitoを検証しない。 */
 import { Environment } from "../../tests/aws-sales/lifecycle.ts";
 import {
   command,
-  requireThat as check,
+  assertCondition,
   type Journal,
 } from "../../tests/aws-sales/environment.ts";
 export function localEnvironment(file: string, j: Journal) {
-  check(j.config.context === "kind-sales-pr9-qa", "LOCAL_CONTEXT_REQUIRED");
+  assertCondition(j.config.context === "kind-sales-pr9-qa", "LOCAL_CONTEXT_REQUIRED");
   const env = new Environment(file, j, async (binary, args, input, timeout) => {
-    check(
+    assertCondition(
       binary === "kubectl" && args.includes("kind-sales-pr9-qa"),
       "LOCAL_KUBECTL_ONLY",
     );
@@ -26,7 +26,7 @@ export function localEnvironment(file: string, j: Journal) {
         "json",
       ]),
     );
-    check(
+    assertCondition(
       new URL(config.clusters[0].cluster.server).hostname === "127.0.0.1",
       "LOCAL_SERVER_REQUIRED",
     );
@@ -37,7 +37,7 @@ export function localEnvironment(file: string, j: Journal) {
     if (object.kind !== "Ingress") await create(path, object);
   };
   env.cluster.aws = async (service, operation) => {
-    check(service === "elbv2", "LOCAL_AWS_DISABLED");
+    assertCondition(service === "elbv2", "LOCAL_AWS_DISABLED");
     if (operation === "describe-load-balancers") return { LoadBalancers: [] };
     if (operation === "describe-target-groups") return { TargetGroups: [] };
     throw Error("LOCAL_AWS_DISABLED");

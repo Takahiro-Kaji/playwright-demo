@@ -10,8 +10,11 @@ TypeScript版の販売管理デモを、実行ごとの専用namespace・MySQL D
 - `resources.ts`：今回だけのbridge、DB Secret、アプリ、上流、Service、CronJob、Cognito Ingress。
 - `lifecycle.ts`：専用DBとユーザー作成・権限、SQLスキーマ初期化、データセット1投入、DNS/ALB/Ingress/Pod/DB照合、カタログ実応答、Jobと復元。
 - `mysql-tunnel.ts`：試験用bridge Podからprivate RDSへ接続し、ローカルのmysql2でCAとRDS名のTLS検証。トランザクションとロック中は同じ接続を保持する。
-- `harness.ts`：共通の `BaseHarness` はDB/Kubernetes対象確認 → ロック → 初期化 → 本体 → 個別/共通復元 → 結果保存を行う。UI専用 `uiSession` / `uiHarness` のみbrowserと保存認証を要求する。After失敗は実行をブロック。
-- `business.spec.ts` → `scenarios.ts`：実処理へ接続した7ケース。
+- `harness.ts`：準備 → テスト本体 → 後片付けの実行順を定義する。UI専用 `uiSession` / `uiHarness` のみbrowserと保存認証を要求する。
+- `harness-session.ts`：DB/Kubernetes対象確認・ロック・初期化・個別/共通復元・結果保存を担当する。準備途中で失敗した場合も取得済みリソースを回収し、後片付けの失敗時は実行をブロックする。
+- `scenarios/ui/sales.spec.ts`、`scenarios/batch/sales.spec.ts`、`scenarios/cross-feature/sales.spec.ts`：ローカル版と同じ分類の7ケース。各specの `test()` → Given/When/Thenを読む。
+- `operations.ts`：共通の画面操作・バッチ正常完了確認・DB照合。
+- `fixtures.ts`：各configの実行モードで実AWS用と専用kind検証用のfixtureを切り替える。両環境で同じspecを使う。
 - `run.ts`：Playwright終了を待って成功・失敗の双方で今回環境を回収。
 - `cleanup.ts`：今回所有のJob・Pod・Ingress・ALB/TG不在確認、DBユーザー・DB、namespace回収。PR #8の通常namespace用削除処理の前に実行する。
 
@@ -79,7 +82,7 @@ npm run aws-sales:manage -- cleanup .local/aws-sales/tokyo-run.json
 
 ## ケース別の流れ
 
-UIケースは認証とURL/ALBを含む対象確認を行い、バッチケースはブラウザーなしでDB/Kubernetesの対象確認を行う。各ケースは共通Givenで設定・対象・所有確認を済ませ、今回DBの4表を空にする。既存業務データの初期化はしない。共通Afterは全件データセット1と通常IFを復元して確認する。テストは1 worker・retryなし・最初の失敗で停止。
+UIケースは認証とURL/ALBを含む対象確認を行い、バッチケースはブラウザーなしでDB/Kubernetesの対象確認を行う。各ケースは共通Givenで設定・対象・所有確認を済ませ、今回DBの4表を空にする。既存業務データの初期化はしない。共通Afterは全件データセット1と通常IFを復元して確認する。テストは1 worker・retryなし・最初の失敗で停止。ファイル分割後の実行順はバッチ → 横断 → UI（`--list` で確認可能）。各ケースは共通Given/Afterで独立させる。
 
 - **UI-01「UI正常・学習用通常HTTP IFと受注」**：Given `batch()` → `compareMysql(データセット1)`。When `availability()` → `show()` → `order()`。Then 201・UUID・画面成功・固定単価/数量、在庫4/version2とP002不変を含む4表全件照合。After 共通復元。
 - **UI-02「UIモック503・DB不変」**：Given `catalog(f1,mock)` → `batch()` → 固定データセット1照合 → `snapshotMysql()` → 元status退避 → `mockStatus(503)` → `catalogMatches(503)`。When 画面接続確認。Then 502・外部エラー・4表不変。After status元値とHTTP確認 → 共通復元。
@@ -123,7 +126,7 @@ npm run test:integration
 
 SQLite版との違いは、非同期の独立MySQL SELECT、RDS行ロックと接続単位のadvisory lock、Kubernetes Job/rollout、実行単位DB/ユーザーの権限、SSO/ALB経路、削除の非同期性。期待値や同期中の成立条件は同じ。JavaのAWS追加は今回対象外。
 
-新しいAWSケースは、固定期待値を先に定義し、scenariosへIDとGiven/When/Thenを追加し、必要な故障注入はAfter actionを変更前に登録する。ケースIDをreporterへ追加し、対象確認を迂回せず、失敗・応答喪失・After失敗のテストを追加する。全件PASSの必要件数と教材も同時に更新する。
+新しいAWSケースは、固定期待値を先に定義し、`scenarios/` 内の対応するspecへ `test()` とID・Given/When/Thenを追加し、必要な故障注入はAfter actionを変更前に登録する。ケースIDをreporterへ追加し、対象確認を迂回せず、失敗・応答喪失・After失敗のテストを追加する。全件PASSの必要件数と教材も同時に更新する。
 
 AWS構築後に初めて確認する項目は、ECR pull/IAM、RDS実CAとTLS、両リージョンのSG/peering/DNS、ALB/Cognito localユーザー/期限切れ状態、Controllerのtarget反映・削除、AWS API権限、実負荷での同期中成立証拠、最終費用と#8による残存確認。
 

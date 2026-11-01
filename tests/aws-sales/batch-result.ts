@@ -1,4 +1,4 @@
-import { requireThat as check, type Journal } from "./environment.ts";
+import { assertCondition, type Journal } from "./environment.ts";
 import { checkEnv } from "./lifecycle.ts";
 export type BatchResult = {
   job: string;
@@ -28,16 +28,16 @@ export type BatchResult = {
     failureMarker: boolean;
   };
 };
-/** Keep only bounded status fields and a boolean for the existing fixed error marker. */
+/** 状態フィールドは長さを制限して保持し、既定の固定エラーマーカーは有無のみ保持する。 */
 export function terminationEvidence(
   j: Journal,
   job: any,
   pods: any[],
   marker: boolean,
 ): NonNullable<BatchResult["termination"]> {
-  check(pods.length === 1, "BATCH_POD_COUNT_UNCONFIRMED");
+  assertCondition(pods.length === 1, "BATCH_POD_COUNT_UNCONFIRMED");
   const p = pods[0];
-  check(
+  assertCondition(
     p.metadata.namespace === j.namespace &&
       p.metadata.labels?.["sales-owner"] === j.owner &&
       p.metadata.labels?.["sales-run"] === j.runId &&
@@ -50,12 +50,12 @@ export function terminationEvidence(
       ),
     "BATCH_POD_OWNER_MISMATCH",
   );
-  check(
+  assertCondition(
     p.spec.containers?.length === 1 && p.spec.containers[0].name === "batch",
     "BATCH_CONTAINER_MISMATCH",
   );
   checkEnv(p.spec.containers[0], j);
-  check(
+  assertCondition(
     JSON.stringify(p.spec.containers[0].command) ===
       JSON.stringify(["node", "aws/sales/runtime.ts", "batch"]),
     "BATCH_COMMAND_MISMATCH",
@@ -63,7 +63,7 @@ export function terminationEvidence(
   const states = p.status?.containerStatuses?.filter(
     (s: any) => s.name === "batch",
   );
-  check(states?.length === 1, "BATCH_CONTAINER_STATUS_UNCONFIRMED");
+  assertCondition(states?.length === 1, "BATCH_CONTAINER_STATUS_UNCONFIRMED");
   const t = states[0].state?.terminated;
   if (!t)
     return {
@@ -88,7 +88,7 @@ export function terminationEvidence(
       finished: false,
       failureMarker: false,
     };
-  check(Number.isInteger(t.exitCode), "BATCH_EXIT_CODE_UNCONFIRMED");
+  assertCondition(Number.isInteger(t.exitCode), "BATCH_EXIT_CODE_UNCONFIRMED");
   return {
     pod: p.metadata.name,
     uid: p.metadata.uid,
@@ -166,10 +166,10 @@ export function classifyBatch(
   return "unexpected-failure";
 }
 
-/** BATCH-02's gate: a generic Failed condition is insufficient. */
+/** BATCH-02の判定条件。単なるFailed状態だけでは条件を満たさない。 */
 export function requireExpectedBatchError(result: BatchResult) {
   const e = result.termination;
-  check(
+  assertCondition(
     result.outcome === "expected-error" &&
       result.stop === "confirmed" &&
       e?.started &&

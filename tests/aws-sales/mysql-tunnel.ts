@@ -3,8 +3,8 @@ import { Duplex } from "node:stream";
 import mysql from "mysql2/promise";
 import { mysqlTls } from "../../aws/sales/tls.ts";
 
-// Executed inside the selected app pod, without a shell or credentials in argv.
-// stdout is reserved for the MySQL wire protocol. stderr must not be logged.
+// 選択したアプリPod内で実行する。シェルは使わず、認証情報をコマンドライン引数に含めない。
+// 標準出力はMySQL通信プロトコル専用。標準エラー出力はログに記録しない。
 const proxy = `const net=require('node:net');const host=process.env.DB_HOST;if(!/^[a-z0-9.-]+\\.rds\\.amazonaws\\.com$/.test(host||''))process.exit(2);const s=net.connect(3306,host);s.on('error',()=>{process.exitCode=3;process.stdin.destroy()});process.stdin.pipe(s).pipe(process.stdout);process.stdin.on('end',()=>s.end());s.on('close',()=>process.stdin.destroy());`;
 
 export type TunnelSettings = {
@@ -32,9 +32,9 @@ export function validateTunnelSettings(s: TunnelSettings) {
     throw Error("DB_CREDENTIALS_REQUIRED");
 }
 
-/** Each MySQL pool connection receives its own non-TTY exec process and tunnel.
- * Caller must first establish that this exact pod belongs to the run's app and
- * that its DB_HOST and DB_NAME match; validating names alone is not ownership. */
+/** MySQLプールの各接続に、TTYを使わない専用のexecプロセスとトンネルを割り当てる。
+ * 呼び出し元は事前に、対象Podが今回の実行のアプリに属し、DB_HOSTとDB_NAMEも
+ * 一致することを確認する。名前の照合だけでは所有関係を確認したことにならない。 */
 export function createTunnelPool(s: TunnelSettings) {
   validateTunnelSettings(s);
   return createPodPool(
@@ -45,7 +45,7 @@ export function createTunnelPool(s: TunnelSettings) {
   );
 }
 
-/** Used only after Cluster ownership and Pod configuration verification. */
+/** クラスターの所有関係とPod設定の確認後にのみ使用する。 */
 export function createPodPool(
   s: TunnelSettings,
   namespace: string,

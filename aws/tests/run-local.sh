@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Dedicated, disposable local kind + MySQL 8.4. No AWS CLI calls.
+# 専用の使い捨てローカルkindとMySQL 8.4を使用する。AWS CLIは呼び出さない。
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 cluster=sales-pr9-qa

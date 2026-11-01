@@ -1,4 +1,4 @@
-// Explicitly invoked against a disposable local MySQL server using a Unix socket.
+// 使い捨てのローカルMySQLに対し、Unixソケット経由で明示的に実行する。
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
 import { randomBytes } from 'node:crypto';
