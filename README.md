@@ -35,3 +35,7 @@ npm test               # 上記検査と7ケースを実行
 詳細な[共通契約](docs/sales-learning-contract.md)と[SSO認証の方針](docs/local-ui-sso-authentication.md)も参照してください。SSOの入口はありますが、実認証はユーザーによる手動操作・環境確認待ちです。
 
 旧AWSデモと9試験は削除せず、[歴史的参照として隔離](old/aws-demo/NOTICE.md)しています。通常の標準コマンド・CIでは実行しません。
+
+### Java 版
+
+同じローカル販売管理デモを Playwright Java・JUnit・SQLite JDBC で学習できます。導入とケース別コマンドは [Java 版 README](java/README.md) を参照してください。TypeScript 版も引き続き利用できます。実 SSO と AWS は未検証です。
